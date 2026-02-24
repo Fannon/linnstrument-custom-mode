@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <title>LinnStrument Custom Mode Prototype</title>
+
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link href="./lib/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="./css/style.css?v=3">
+
+  <script src="./lib/bootstrap.bundle.min.js?v=2"></script>
+  <script src="./lib/webmidi.iife.min.js"></script>
+  <script src="./src/main.js" type="module"></script>
+</head>
+
+<body>
+  <div class="page-shell">
+    <header class="app-header">
+      <div>
+        <p class="eyebrow">LinnStrument</p>
+        <h1>LinnStrument Custom Mode Prototype</h1>
+        <p class="lede">Preset-based scale layout router for LinnStrument + one MIDI loop output.</p>
+      </div>
+      <div class="header-links">
+        <a href="https://github.com/Fannon/linnstrument-light-guide" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="https://github.com/Fannon/linnstrument-light-guide#readme" target="_blank" rel="noreferrer">README</a>
+      </div>
+    </header>
+
+    <main class="layout-grid">
+      <section class="panel control-panel">
+        <h2>Connections</h2>
+        <div class="field-grid">
+          <label for="instrumentInputPort">LinnStrument Input</label>
+          <select id="instrumentInputPort" class="form-select"></select>
+
+          <label for="instrumentOutputPort">LinnStrument Output</label>
+          <select id="instrumentOutputPort" class="form-select"></select>
+
+          <label for="loopOutputPort">MIDI Loop Output</label>
+          <select id="loopOutputPort" class="form-select"></select>
+        </div>
+        <div class="button-row">
+          <button id="refreshPorts" type="button" class="btn btn-outline-secondary btn-sm">Refresh Ports</button>
+          <button id="saveConfig" type="button" class="btn btn-primary btn-sm">Save & Apply</button>
+          <button id="resetConfig" type="button" class="btn btn-outline-danger btn-sm">Reset</button>
+        </div>
+
+        <h2>Preset</h2>
+        <div class="field-grid">
+          <label for="presetSelect">Preset Layout</label>
+          <select id="presetSelect" class="form-select"></select>
+
+          <label for="layoutRowOffset">Note Layout Row Offset</label>
+          <input id="layoutRowOffset" class="form-control" type="number" min="1" max="12" step="1">
+
+          <label for="pitchSlideSemitonesPerPad">Horizontal Slide Pitch Bend</label>
+          <select id="pitchSlideSemitonesPerPad" class="form-select">
+            <option value="0.5">1 pad = 0.5 semitones</option>
+            <option value="1">1 pad = 1 semitone</option>
+            <option value="2">1 pad = 2 semitones</option>
+          </select>
+        </div>
+
+        <h2>Device Mapping</h2>
+        <p class="muted">Used to resolve touched pad coordinates from LinnStrument note input.</p>
+        <div class="field-grid">
+          <label for="deviceStartNote">Device Start Note</label>
+          <input id="deviceStartNote" class="form-control" type="number" min="0" max="127" step="1">
+
+          <label for="deviceRowOffset">Device Row Offset (semitones)</label>
+          <input id="deviceRowOffset" class="form-control" type="number" min="0" max="24" step="1">
+        </div>
+        <div class="button-row">
+          <button id="syncLinnState" type="button" class="btn btn-outline-secondary btn-sm">Sync From LinnStrument</button>
+          <button id="panic" type="button" class="btn btn-outline-warning btn-sm">All Notes Off</button>
+        </div>
+
+        <h2>State</h2>
+        <div class="status-grid">
+          <div>
+            <span class="status-label">Key</span>
+            <strong id="selectedKeyDisplay">C</strong>
+          </div>
+          <div>
+            <span class="status-label">Mode</span>
+            <strong id="selectedModeDisplay">Major</strong>
+          </div>
+          <div>
+            <span class="status-label">Routing</span>
+            <strong id="routingStatus">Not connected</strong>
+          </div>
+          <div>
+            <span class="status-label">Assumption</span>
+            <strong id="inputAssumptionDisplay">Rows on MIDI ch 1-8</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel surface-panel">
+        <div class="surface-header">
+          <div>
+            <h2>Surface</h2>
+            <p class="muted">Bottom row = Modwheel. Next row (left 12 pads) selects key. Third row (left pads) selects mode. Upper rows play scale-only notes.</p>
+          </div>
+          <div class="legend">
+            <span class="legend-item legend-mod">Mod</span>
+            <span class="legend-item legend-key">Key</span>
+            <span class="legend-item legend-mode">Mode</span>
+            <span class="legend-item legend-play">Scale Note</span>
+            <span class="legend-item legend-tonic">Tonic</span>
+          </div>
+        </div>
+
+        <div id="visualization" aria-label="LinnStrument surface visualization"></div>
+
+        <div class="surface-footer">
+          <small class="muted">Prototype assumptions: 128-pad LinnStrument, row-channel input (channels 1-8), default device mapping `start=30`, `rowOffset=5` unless synced.</small>
+        </div>
+      </section>
+
+      <section class="panel log-panel">
+        <div class="log-header">
+          <h2>Log</h2>
+          <button id="clearLog" type="button" class="btn btn-outline-secondary btn-sm">Clear</button>
+        </div>
+        <div id="log"></div>
+      </section>
+    </main>
+  </div>
+</body>
+
+</html>
