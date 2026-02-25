@@ -11,8 +11,8 @@ import {
 export const PRESETS = [
   {
     id: "scale-mode-basic-v1",
-    name: "Scale Mode (Mod row + Key/Mode rows)",
-    description: "Bottom row sends modwheel from pressure. Next rows select key and mode. Upper rows output scale-only notes.",
+    name: "Scale Mode (Mod row + Overlay key/mode controls)",
+    description: "Bottom row sends modwheel from pressure (except control-overlay trigger). Hold/tap the trigger to access key/mode controls; other rows output scale notes.",
     playableRowsStart: 3,
   },
 ];
@@ -20,7 +20,7 @@ export const PRESETS = [
 const PRESET_BY_ID = Object.fromEntries(PRESETS.map((preset) => [preset.id, preset]));
 const MODE_BY_ID = Object.fromEntries(MODES.map((mode) => [mode.id, mode]));
 
-export function buildLayoutDefinition(config, defaults = {}) {
+export function buildLayoutDefinition(config, defaults = {}, uiState = {}) {
   const cellMeta = {};
   const padMap = {};
   const columns = (config?.linnStrumentSize ?? 128) / 8;
@@ -30,6 +30,9 @@ export function buildLayoutDefinition(config, defaults = {}) {
   const baseRootC = clampInt(config?.baseRootC, 0, 127, 36);
   const rootMidi = baseRootC + rootPc;
   const activeRowOffset = getActiveLayoutRowOffset(config, defaults);
+  const controlOverlayActive = Boolean(uiState?.controlOverlayActive);
+  const playableRowsStart = controlOverlayActive ? preset.playableRowsStart : 1;
+  const noteMappingOriginRow = 1;
 
   for (let x = 0; x < columns; x++) {
     for (let y = 0; y < 8; y++) {
@@ -37,13 +40,20 @@ export function buildLayoutDefinition(config, defaults = {}) {
       const meta = { zone: "disabled", label: "", subLabel: "", disabled: true };
       let pad = { role: "disabled" };
 
-      if (y === 0) {
+      if (x === 0 && y === 0) {
+        meta.zone = "overlay-trigger";
+        meta.label = "Ctl";
+        meta.subLabel = controlOverlayActive ? "on" : "tap/hold";
+        meta.disabled = false;
+        meta.selected = controlOverlayActive;
+        pad = { role: "control-overlay-trigger" };
+      } else if (y === 0) {
         meta.zone = "mod";
         meta.label = "MW";
-        meta.subLabel = x === 0 ? "CC1" : "";
+        meta.subLabel = x === 1 ? "CC1" : "";
         meta.disabled = false;
         pad = { role: "mod" };
-      } else if (y === 1) {
+      } else if (controlOverlayActive && y === 1) {
         if (x < 12) {
           meta.zone = "key";
           meta.label = NOTE_NAMES[x];
@@ -65,7 +75,7 @@ export function buildLayoutDefinition(config, defaults = {}) {
           meta.disabled = false;
           pad = { role: "octave-up" };
         }
-      } else if (y === 2) {
+      } else if (controlOverlayActive && y === 2) {
         if (x < MODES.length) {
           const rowMode = MODES[x];
           meta.zone = "mode";
@@ -82,8 +92,10 @@ export function buildLayoutDefinition(config, defaults = {}) {
           meta.selected = Boolean(config?.allNotesEnabled);
           pad = { role: "toggle-all-notes" };
         }
-      } else if (y >= preset.playableRowsStart) {
-        const degreeIndex = x + (y - preset.playableRowsStart) * activeRowOffset;
+      } else if (y >= playableRowsStart) {
+        // Keep note positions stable when the overlay is shown; controls visually
+        // replace rows, but the remaining playable rows keep their normal mapping.
+        const degreeIndex = x + (y - noteMappingOriginRow) * activeRowOffset;
         const mappedNote = config?.allNotesEnabled
           ? clampInt(rootMidi + degreeIndex, 0, 127, rootMidi)
           : scaleNoteAt(rootMidi, mode, degreeIndex);
@@ -94,7 +106,7 @@ export function buildLayoutDefinition(config, defaults = {}) {
         meta.label = NOTE_NAMES[pc];
         meta.subLabel = `o${octave}`;
         meta.disabled = false;
-        meta.tonic = pc === rootPc;
+        meta.tonic = !Boolean(config?.allNotesEnabled) && pc === rootPc;
         meta.inSelectedScale = isPitchClassInMode(pc, rootPc, mode);
         meta.noteNumber = mappedNote;
         pad = { role: "play-note", outNote: mappedNote };

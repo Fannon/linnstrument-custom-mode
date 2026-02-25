@@ -4,8 +4,16 @@ import { resetGrid, getGridDict, generateGrid, drawGrid, coordKey } from "./grid
 import { PRESETS, buildLayoutDefinition as buildLayoutDefinitionCore } from "./layout-logic.js";
 import { readLinnStrumentParamValue } from "./linnstrument-sync.js";
 import {
+  CONTROL_OVERLAY_TRIGGER_COORD,
+  createControlOverlayState,
+  isControlOverlayActive as isControlOverlayActiveCore,
+  pressControlOverlay,
+  releaseControlOverlay,
+} from "./control-overlay.js";
+import {
   NOTE_NAMES,
   MODES,
+  NO_OVERLAP_COLUMN_PHASE,
   clampInt,
   parsePitchSlideSetting,
   mod,
@@ -13,6 +21,7 @@ import {
   scalePitchBend14,
   rowIndexFromChannel as rowIndexFromChannelCore,
   resolveNoOverlapPadCoord as resolveNoOverlapPadCoordCore,
+  resolveUserFirmwarePadCoord as resolveUserFirmwarePadCoordCore,
   shouldLightPlayablePad as shouldLightPlayablePadCore,
   getActiveLayoutRowOffset as getActiveLayoutRowOffsetCore,
 } from "./core-logic.js";
@@ -21,6 +30,7 @@ const MODE_BY_ID = Object.fromEntries(MODES.map((mode) => [mode.id, mode]));
 const INSTRUMENT_COLORS = {
   off: 7,
   mod: 2,
+  overlayTrigger: 6,
   keyNatural: 4,
   keyAccidental: 5,
   mode: 3,
@@ -28,9 +38,17 @@ const INSTRUMENT_COLORS = {
   disabled: 7,
   play: 8,
   tonic: 9,
+  held: 1,
   selected: 1,
   sameNote: 1,
 };
+
+const DEBUG_CONTROL_OVERLAY = true;
+const LINNSTRUMENT_INPUT_PROTOCOL_STANDARD = "standard";
+const LINNSTRUMENT_INPUT_PROTOCOL_USER_FIRMWARE = "user-firmware";
+const USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_1 = 3; // 3rd control-strip button from bottom (Oct-)
+const USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_2 = 4; // 4th control-strip button from bottom (Oct+)
+const USER_FIRMWARE_CONTROL_STRIP_ROW_SPLIT = 2;    // 2nd control-strip button from bottom (Split)
 
 export const ext = {
   config: {},
@@ -51,6 +69,7 @@ export const ext = {
     activeLoopNotes: new Set(),
     modPressuresByPad: new Map(),
     modChannelsByPad: new Map(),
+    controlOverlay: createControlOverlayState(),
     sync: {
       splitMode: null,
       perRowLowestChannel: null,
@@ -76,6 +95,7 @@ async function init() {
 
   bindUi();
   populatePresetSelect();
+  populateStateSelectors();
   populateUiFromConfig();
   refreshPortSelectors({ autoSelectInstrument: true });
 
@@ -83,7 +103,11 @@ async function init() {
   rebuildLayout();
 
   log.success("Prototype initialized.");
-  log.info("Using LinnStrument row-channel mapping assumption by default (channels 1-8 = rows). Click Sync From LinnStrument to confirm.");
+  if (isLinnStrumentUserFirmwareModeEnabled()) {
+    log.info("Using LinnStrument User Firmware Mode input decoding (rows=channels 1-8, playable columns=notes 1-N).");
+  } else {
+    log.info("Using LinnStrument row-channel mapping assumption by default (channels 1-8 = rows). Click Sync From LinnStrument to confirm.");
+  }
 }
 
 function bindUi() {
@@ -106,6 +130,7 @@ function bindUi() {
     await restoreLinnStrumentDefaultState();
     clearPersistedConfig();
     ext.config = { ...defaultConfig };
+    ext.config.linnStrumentInputProtocol = LINNSTRUMENT_INPUT_PROTOCOL_STANDARD;
     populateUiFromConfig();
     refreshPortSelectors({ autoSelectInstrument: true });
     await connectMidiFromConfig({ autoConfigureInstrument: false });
@@ -134,6 +159,24 @@ function bindUi() {
     }
   });
 
+  document.getElementById("stateTonicSelect")?.addEventListener("change", (event) => {
+    const nextKey = clampInt(event?.target?.value, 0, 11, ext.config.selectedKey ?? defaultConfig.selectedKey);
+    applySelectedKey(nextKey, { trigger: "key-ui" });
+  });
+
+  document.getElementById("stateScaleSelect")?.addEventListener("change", (event) => {
+    const modeId = String(event?.target?.value || "");
+    applySelectedMode(modeId, { trigger: "scale-ui" });
+  });
+
+  document.getElementById("stateModeScaleBtn")?.addEventListener("click", () => {
+    setAllNotesMode(false, { trigger: "all-notes-ui" });
+  });
+
+  document.getElementById("stateModeAllBtn")?.addEventListener("click", () => {
+    setAllNotesMode(true, { trigger: "all-notes-ui" });
+  });
+
   window.addEventListener("resize", debounce(() => {
     drawGrid(ext.grid, ext.layout.cellMeta);
     paintInstrumentLayout();
@@ -156,8 +199,34 @@ function populatePresetSelect() {
   });
 }
 
+function populateStateSelectors() {
+  const tonicSelect = document.getElementById("stateTonicSelect");
+  if (tonicSelect) {
+    tonicSelect.innerHTML = "";
+    NOTE_NAMES.forEach((name, pc) => {
+      const option = document.createElement("option");
+      option.value = String(pc);
+      option.textContent = name;
+      tonicSelect.appendChild(option);
+    });
+  }
+
+  const modeSelect = document.getElementById("stateScaleSelect");
+  if (modeSelect) {
+    modeSelect.innerHTML = "";
+    MODES.forEach((mode) => {
+      const option = document.createElement("option");
+      option.value = mode.id;
+      option.textContent = mode.name;
+      modeSelect.appendChild(option);
+    });
+  }
+}
+
 function populateUiFromConfig() {
   setValue("presetSelect", ext.config.presetId);
+  setValue("stateTonicSelect", mod(ext.config.selectedKey ?? defaultConfig.selectedKey, 12));
+  setValue("stateScaleSelect", ext.config.selectedModeId ?? defaultConfig.selectedModeId);
   setValue("layoutRowOffsetScale", ext.config.layoutRowOffsetScale);
   setValue("layoutRowOffsetAllNotes", ext.config.layoutRowOffsetAllNotes);
   setValue("pitchSlideSemitonesPerPad", ext.config.pitchSlideSemitonesPerPad);
@@ -168,6 +237,14 @@ function populateUiFromConfig() {
 
 function readConfigFromUi() {
   const presetId = getValue("presetSelect") || defaultConfig.presetId;
+  const selectedKey = clampInt(
+    getValue("stateTonicSelect"),
+    0,
+    11,
+    ext.config.selectedKey ?? defaultConfig.selectedKey,
+  );
+  const selectedModeIdRaw = getValue("stateScaleSelect") || ext.config.selectedModeId || defaultConfig.selectedModeId;
+  const selectedModeId = MODE_BY_ID[selectedModeIdRaw] ? selectedModeIdRaw : defaultConfig.selectedModeId;
   const layoutRowOffsetScale = clampInt(
     getValue("layoutRowOffsetScale"),
     1,
@@ -196,6 +273,8 @@ function readConfigFromUi() {
   ext.config = {
     ...ext.config,
     presetId,
+    selectedKey,
+    selectedModeId,
     layoutRowOffsetScale,
     layoutRowOffsetAllNotes,
     pitchSlideSemitonesPerPad,
@@ -213,6 +292,8 @@ function readConfigFromUi() {
   setValue("outputPitchBendRangeSemitones", ext.config.outputPitchBendRangeSemitones);
   setValue("deviceStartNote", ext.config.deviceStartNote);
   setValue("deviceRowOffset", ext.config.deviceRowOffset);
+  setValue("stateTonicSelect", mod(ext.config.selectedKey ?? defaultConfig.selectedKey, 12));
+  setValue("stateScaleSelect", ext.config.selectedModeId ?? defaultConfig.selectedModeId);
 }
 
 function refreshPortSelectors({ autoSelectInstrument = false } = {}) {
@@ -345,7 +426,7 @@ async function connectMidiFromConfig(options = {}) {
   }
 
   if (autoConfigureInstrument) {
-    await configureLinnStrumentNoOverlapDetectionMode();
+    await configureLinnStrumentInputMode();
   }
   updateRoutingStatus();
 }
@@ -391,10 +472,179 @@ function rebuildLayout(options = {}) {
 }
 
 function buildLayoutDefinition() {
-  return buildLayoutDefinitionCore(ext.config, defaultConfig);
+  return buildLayoutDefinitionCore(ext.config, defaultConfig, {
+    controlOverlayActive: isControlOverlayActive(),
+  });
+}
+
+function isControlOverlayActive() {
+  return isControlOverlayActiveCore(ext.state.controlOverlay);
+}
+
+function isControlOverlayTriggerCoord(coord) {
+  return coord === CONTROL_OVERLAY_TRIGGER_COORD;
+}
+
+function isLinnStrumentUserFirmwareModeEnabled() {
+  return ext.config.linnStrumentInputProtocol === LINNSTRUMENT_INPUT_PROTOCOL_USER_FIRMWARE;
+}
+
+function debugControlOverlay(message, data = null) {
+  if (!DEBUG_CONTROL_OVERLAY) {
+    return;
+  }
+  if (data === null) {
+    console.debug(`[overlay] ${message}`);
+    return;
+  }
+  console.debug(`[overlay] ${message}`, data);
+}
+
+function handleControlOverlayTriggerPress(event) {
+  const touchId = overlayTouchIdForEvent(event);
+  debugControlOverlay("press:start", {
+    coord: event?.coord,
+    noteNumber: event?.noteNumber,
+    channel: event?.channel,
+    touchId,
+    stateBefore: { ...ext.state.controlOverlay },
+  });
+  const result = pressControlOverlay(ext.state.controlOverlay, { touchId });
+  debugControlOverlay("press:result", {
+    result,
+    stateAfter: { ...ext.state.controlOverlay },
+  });
+  if (result.shouldRebuild) {
+    rebuildLayout({ preserveHeldState: true });
+    debugControlOverlay("press:rebuild", { active: isControlOverlayActive() });
+  }
+}
+
+function handleControlOverlayTriggerRelease(event) {
+  const touchId = overlayTouchIdForEvent(event);
+  debugControlOverlay("release:start", {
+    coord: event?.coord,
+    noteNumber: event?.noteNumber,
+    channel: event?.channel,
+    touchId,
+    stateBefore: { ...ext.state.controlOverlay },
+  });
+  const result = releaseControlOverlay(ext.state.controlOverlay, { touchId });
+  debugControlOverlay("release:result", {
+    result,
+    stateAfter: { ...ext.state.controlOverlay },
+  });
+  if (result.toggled) {
+    log.info(`Control overlay ${result.pinned ? "latched on" : "latched off"}.`);
+  }
+  if (result.shouldRebuild) {
+    rebuildLayout({ preserveHeldState: true });
+    debugControlOverlay("release:rebuild", { active: isControlOverlayActive() });
+  }
+}
+
+function applySelectedKey(keyPc, options = {}) {
+  const {
+    trigger = "key",
+    flashCoord = null,
+    flashPitchClass = true,
+  } = options;
+  const nextKey = mod(keyPc, 12);
+
+  if (nextKey === mod(ext.config.selectedKey ?? defaultConfig.selectedKey, 12)) {
+    setValue("stateTonicSelect", nextKey);
+    return false;
+  }
+
+  ext.config.selectedKey = nextKey;
+  persistConfig(ext.config);
+  rebuildLayout();
+  if (flashCoord) {
+    flashSelection(flashCoord);
+  }
+  if (flashPitchClass) {
+    flashPlayablePitchClass(nextKey);
+  }
+  log.info(`Key changed to ${NOTE_NAMES[nextKey]}`);
+  logActiveState(trigger);
+  return true;
+}
+
+function applySelectedMode(modeId, options = {}) {
+  const {
+    trigger = "scale",
+    flashCoord = null,
+  } = options;
+  if (!MODE_BY_ID[modeId]) {
+    setValue("stateScaleSelect", ext.config.selectedModeId ?? defaultConfig.selectedModeId);
+    return false;
+  }
+
+  if (ext.config.selectedModeId === modeId) {
+    setValue("stateScaleSelect", modeId);
+    return false;
+  }
+
+  ext.config.selectedModeId = modeId;
+  persistConfig(ext.config);
+  rebuildLayout();
+  if (flashCoord) {
+    flashSelection(flashCoord);
+  }
+  log.info(`Mode changed to ${MODE_BY_ID[ext.config.selectedModeId]?.name || modeId}`);
+  logActiveState(trigger);
+  return true;
+}
+
+function setAllNotesMode(enabled, options = {}) {
+  const {
+    trigger = "all-notes",
+    flashCoord = null,
+  } = options;
+  const nextValue = Boolean(enabled);
+
+  if (Boolean(ext.config.allNotesEnabled) === nextValue) {
+    return nextValue;
+  }
+
+  ext.config.allNotesEnabled = nextValue;
+  persistConfig(ext.config);
+  rebuildLayout();
+  if (flashCoord) {
+    flashSelection(flashCoord);
+  }
+  log.info(`All notes ${ext.config.allNotesEnabled ? "enabled" : "disabled"} (selected scale remains ${MODE_BY_ID[ext.config.selectedModeId]?.name || ext.config.selectedModeId}).`);
+  logActiveState(trigger);
+  return nextValue;
+}
+
+function toggleAllNotesMode(options = {}) {
+  return setAllNotesMode(!ext.config.allNotesEnabled, options);
 }
 
 function handleNoteOn(msg) {
+  const controlStripCommand = normalizeUserFirmwareControlStripCommandEvent(msg);
+  if (controlStripCommand) {
+    if (controlStripCommand.action === "octave-up") {
+      shiftOutputOctave(1);
+      return;
+    }
+    if (controlStripCommand.action === "octave-down") {
+      shiftOutputOctave(-1);
+      return;
+    }
+  }
+
+  const overlayEvent = normalizeOverlayTriggerEvent(msg, { debug: true, phase: "noteon" });
+  if (overlayEvent) {
+    debugControlOverlay("noteon:routed-to-overlay", overlayEvent);
+    if (!overlayEvent.syntheticControlStrip) {
+      setPadHeld(overlayEvent.coord, true);
+    }
+    handleControlOverlayTriggerPress(overlayEvent);
+    return;
+  }
+
   const event = normalizeTouchEvent(msg);
   if (!event) {
     return;
@@ -403,37 +653,26 @@ function handleNoteOn(msg) {
   setPadHeld(event.coord, true);
 
   const pad = ext.layout.padMap[event.coord] || { role: "disabled" };
+  if (isControlOverlayTriggerCoord(event.coord) || pad.role === "control-overlay-trigger") {
+    handleControlOverlayTriggerPress(event);
+    return;
+  }
+
   switch (pad.role) {
     case "mod": {
       setModPressure(event.coord, event.velocity, event.channel, event.noteNumber);
       break;
     }
     case "key-select": {
-      ext.config.selectedKey = pad.keyPc;
-      persistConfig(ext.config);
-      rebuildLayout();
-      flashSelection(event.coord);
-      flashPlayablePitchClass(pad.keyPc);
-      log.info(`Key changed to ${NOTE_NAMES[ext.config.selectedKey]}`);
-      logActiveState("key");
+      applySelectedKey(pad.keyPc, { trigger: "key", flashCoord: event.coord, flashPitchClass: true });
       break;
     }
     case "mode-select": {
-      ext.config.selectedModeId = pad.modeId;
-      persistConfig(ext.config);
-      rebuildLayout();
-      flashSelection(event.coord);
-      log.info(`Mode changed to ${MODE_BY_ID[ext.config.selectedModeId]?.name || pad.modeId}`);
-      logActiveState("scale");
+      applySelectedMode(pad.modeId, { trigger: "scale", flashCoord: event.coord });
       break;
     }
     case "toggle-all-notes": {
-      ext.config.allNotesEnabled = !ext.config.allNotesEnabled;
-      persistConfig(ext.config);
-      rebuildLayout();
-      flashSelection(event.coord);
-      log.info(`All notes ${ext.config.allNotesEnabled ? "enabled" : "disabled"} (selected scale remains ${MODE_BY_ID[ext.config.selectedModeId]?.name || ext.config.selectedModeId}).`);
-      logActiveState("all-notes");
+      toggleAllNotesMode({ trigger: "all-notes", flashCoord: event.coord });
       break;
     }
     case "octave-down": {
@@ -461,6 +700,16 @@ function handleNoteOn(msg) {
 }
 
 function handleNoteOff(msg) {
+  const overlayEvent = normalizeOverlayTriggerEvent(msg, { debug: true, phase: "noteoff" });
+  if (overlayEvent) {
+    debugControlOverlay("noteoff:routed-to-overlay", overlayEvent);
+    if (!overlayEvent.syntheticControlStrip) {
+      setPadHeld(overlayEvent.coord, false);
+    }
+    handleControlOverlayTriggerRelease(overlayEvent);
+    return;
+  }
+
   const event = normalizeTouchEvent(msg);
   if (!event) {
     return;
@@ -469,6 +718,10 @@ function handleNoteOff(msg) {
   setPadHeld(event.coord, false);
 
   const pad = ext.layout.padMap[event.coord] || { role: "disabled" };
+  if (isControlOverlayTriggerCoord(event.coord) || pad.role === "control-overlay-trigger") {
+    handleControlOverlayTriggerRelease(event);
+    return;
+  }
   if (pad.role === "mod") {
     clearModPressure(event.coord, event.channel, event.noteNumber);
     return;
@@ -484,12 +737,19 @@ function handleNoteOff(msg) {
 }
 
 function handlePolyPressure(msg) {
+  if (normalizeOverlayTriggerEvent(msg)) {
+    return;
+  }
+
   const event = normalizeTouchEvent(msg);
   if (!event) {
     return;
   }
 
   const pad = ext.layout.padMap[event.coord] || { role: "disabled" };
+  if (isControlOverlayTriggerCoord(event.coord) || pad.role === "control-overlay-trigger") {
+    return;
+  }
   if (pad.role === "mod") {
     setModPressure(event.coord, msg.rawValue ?? event.velocity, event.channel, event.noteNumber);
     return;
@@ -539,6 +799,85 @@ function handlePitchBend(msg) {
 }
 
 function normalizeTouchEvent(msg) {
+  const raw = extractRawTouchEvent(msg);
+  if (!raw) {
+    return null;
+  }
+
+  const coord = resolvePadCoord(raw.noteNumber, raw.channel);
+  if (!coord) {
+    return null;
+  }
+
+  return {
+    ...raw,
+    coord,
+  };
+}
+
+function normalizeOverlayTriggerEvent(msg, options = {}) {
+  const { debug = false, phase = "event" } = options;
+  const raw = extractRawTouchEvent(msg);
+  if (!raw) {
+    if (debug) {
+      debugControlOverlay(`${phase}:raw-missing`);
+    }
+    return null;
+  }
+
+  const resolvedCoord = resolvePadCoord(raw.noteNumber, raw.channel);
+  const signatureMatch = matchesNoOverlapBottomLeftTriggerSignature(raw.noteNumber, raw.channel);
+  const userFirmwareControlStripAction = resolveUserFirmwareControlStripCommand(raw.noteNumber, raw.channel);
+  if (debug) {
+    debugControlOverlay(`${phase}:probe`, {
+      noteNumber: raw.noteNumber,
+      channel: raw.channel,
+      velocity: raw.velocity,
+      resolvedCoord,
+      isResolvedTriggerCoord: isControlOverlayTriggerCoord(resolvedCoord),
+      signatureMatch,
+      userFirmwareControlStripAction,
+      triggerCoord: CONTROL_OVERLAY_TRIGGER_COORD,
+      mapping: {
+        inputProtocol: ext.config.linnStrumentInputProtocol || "standard",
+        assumeRowChannels: ext.config.assumeRowChannels,
+        deviceStartNote: ext.config.deviceStartNote,
+        deviceRowOffset: ext.config.deviceRowOffset,
+        deviceColOffset: ext.config.deviceColOffset,
+        perRowLowestChannel: ext.state.sync.perRowLowestChannel ?? 1,
+        rowChannelOrderReversed: Boolean(ext.state.sync.rowChannelOrderReversed),
+      },
+    });
+  }
+  if (isControlOverlayTriggerCoord(resolvedCoord)) {
+    if (debug) {
+      debugControlOverlay(`${phase}:match`, { via: "resolvedCoord" });
+    }
+    return { ...raw, coord: CONTROL_OVERLAY_TRIGGER_COORD };
+  }
+
+  if (userFirmwareControlStripAction === "overlay") {
+    if (debug) {
+      debugControlOverlay(`${phase}:match`, { via: "userFirmwareControlStripSplit" });
+    }
+    return {
+      ...raw,
+      coord: CONTROL_OVERLAY_TRIGGER_COORD,
+      syntheticControlStrip: true,
+    };
+  }
+
+  if (!isNoOverlapDetectionMode() || !signatureMatch) {
+    return null;
+  }
+
+  if (debug) {
+    debugControlOverlay(`${phase}:match`, { via: "noOverlapSignature" });
+  }
+  return { ...raw, coord: CONTROL_OVERLAY_TRIGGER_COORD };
+}
+
+function extractRawTouchEvent(msg) {
   const noteNumber = msg?.note?.number ?? msg?.dataBytes?.[0];
   if (!Number.isFinite(noteNumber)) {
     return null;
@@ -546,21 +885,58 @@ function normalizeTouchEvent(msg) {
 
   const channel = getChannel(msg);
   const velocity = msg.rawVelocity ?? msg.rawValue ?? 0;
-  const coord = resolvePadCoord(noteNumber, channel);
-  if (!coord) {
-    return null;
-  }
-
   return {
     noteNumber,
     channel,
     velocity,
-    coord,
   };
+}
+
+function normalizeUserFirmwareControlStripCommandEvent(msg) {
+  const raw = extractRawTouchEvent(msg);
+  if (!raw) {
+    return null;
+  }
+  const action = resolveUserFirmwareControlStripCommand(raw.noteNumber, raw.channel);
+  if (!action || action === "overlay") {
+    return null;
+  }
+  return {
+    ...raw,
+    action,
+    syntheticControlStrip: true,
+  };
+}
+
+function resolveUserFirmwareControlStripCommand(noteNumber, channel) {
+  if (!isLinnStrumentUserFirmwareModeEnabled()) {
+    return null;
+  }
+  if (!Number.isFinite(noteNumber) || !Number.isFinite(channel)) {
+    return null;
+  }
+  if (noteNumber !== 0) {
+    return null;
+  }
+
+  if (channel === USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_1) {
+    return "octave-down";
+  }
+  if (channel === USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_2) {
+    return "octave-up";
+  }
+  if (channel === USER_FIRMWARE_CONTROL_STRIP_ROW_SPLIT) {
+    return "overlay";
+  }
+  return null;
 }
 
 function resolvePadCoord(noteNumber, channel) {
   const columns = ext.config.linnStrumentSize / 8;
+
+  if (isLinnStrumentUserFirmwareModeEnabled()) {
+    return resolveUserFirmwarePadCoord(noteNumber, channel);
+  }
 
   if (isNoOverlapDetectionMode()) {
     return resolveNoOverlapPadCoord(noteNumber, channel);
@@ -587,12 +963,24 @@ function resolvePadCoord(noteNumber, channel) {
 }
 
 function isNoOverlapDetectionMode() {
+  if (isLinnStrumentUserFirmwareModeEnabled()) {
+    return false;
+  }
   const columns = ext.config.linnStrumentSize / 8;
   return (
     ext.config.deviceStartNote === 0 &&
     ext.config.deviceColOffset === 1 &&
     ext.config.deviceRowOffset === columns
   );
+}
+
+function resolveUserFirmwarePadCoord(noteNumber, channel) {
+  return resolveUserFirmwarePadCoordCore(noteNumber, channel, {
+    columns: ext.config.linnStrumentSize / 8,
+    rows: 8,
+    perRowLowestChannel: 1,
+    rowChannelOrderReversed: false,
+  });
 }
 
 function resolveNoOverlapPadCoord(noteNumber, channel) {
@@ -616,6 +1004,8 @@ function setPadHeld(coord, held) {
   if (el) {
     el.classList.toggle("cell-held", held);
   }
+
+  paintInstrumentCoord(coord);
 }
 
 function flashSelection(coord) {
@@ -696,7 +1086,7 @@ function refreshInstrumentSameOutputNoteHighlights(noteNumber) {
 
     const color = hasActive && !activeCoordsForNote.has(coord)
       ? INSTRUMENT_COLORS.sameNote
-      : getInstrumentColorForMeta(meta);
+      : getInstrumentColorForMeta(meta, coord);
     highlightInstrumentXY(x, y, color);
   }
 }
@@ -870,16 +1260,22 @@ function clearHeldState() {
 
 function updateStatusUi() {
   const mode = MODE_BY_ID[ext.config.selectedModeId] || MODES[0];
-  setText("selectedKeyDisplay", NOTE_NAMES[ext.config.selectedKey % 12]);
-  setText("selectedModeDisplay", mode.name);
-  setText(
-    "inputAssumptionDisplay",
-    ext.config.assumeRowChannels
-      ? ext.state.sync.rowChannelOrderReversed
-        ? `Rows on MIDI ch ${((ext.state.sync.perRowLowestChannel ?? 1) + 7)}-${(ext.state.sync.perRowLowestChannel ?? 1)}`
-        : `Rows on MIDI ch ${(ext.state.sync.perRowLowestChannel ?? 1)}-${((ext.state.sync.perRowLowestChannel ?? 1) + 7)}`
-      : "Fallback note-only mapping",
-  );
+  setValue("stateTonicSelect", mod(ext.config.selectedKey, 12));
+  setValue("stateScaleSelect", mode.id);
+  const modeScaleBtn = document.getElementById("stateModeScaleBtn");
+  const modeAllBtn = document.getElementById("stateModeAllBtn");
+  if (modeScaleBtn) {
+    const scaleActive = !ext.config.allNotesEnabled;
+    modeScaleBtn.setAttribute("aria-pressed", scaleActive ? "true" : "false");
+    modeScaleBtn.classList.toggle("btn-secondary", scaleActive);
+    modeScaleBtn.classList.toggle("btn-outline-secondary", !scaleActive);
+  }
+  if (modeAllBtn) {
+    const allActive = Boolean(ext.config.allNotesEnabled);
+    modeAllBtn.setAttribute("aria-pressed", allActive ? "true" : "false");
+    modeAllBtn.classList.toggle("btn-secondary", allActive);
+    modeAllBtn.classList.toggle("btn-outline-secondary", !allActive);
+  }
   updateRoutingStatus();
 }
 
@@ -901,14 +1297,21 @@ function paintInstrumentLayout() {
     for (let y = 0; y < 8; y++) {
       const key = coordKey(x, y);
       const meta = ext.layout.cellMeta[key] || {};
-      highlightInstrumentXY(x, y, getInstrumentColorForMeta(meta));
+      highlightInstrumentXY(x, y, getInstrumentColorForMeta(meta, key));
     }
   }
+
+  paintInstrumentUserFirmwareControlStrip();
 }
 
-function getInstrumentColorForMeta(meta = {}) {
+function getInstrumentColorForMeta(meta = {}, coord = null) {
+  if (coord && ext.state.heldPads.has(coord)) {
+    return INSTRUMENT_COLORS.held;
+  }
+
   let color = INSTRUMENT_COLORS.disabled;
 
+  if (meta.zone === "overlay-trigger") color = INSTRUMENT_COLORS.overlayTrigger;
   if (meta.zone === "mod") color = INSTRUMENT_COLORS.mod;
   if (meta.zone === "key") {
     color = meta.selected
@@ -929,22 +1332,64 @@ function getInstrumentColorForMeta(meta = {}) {
   return color;
 }
 
+function paintInstrumentCoord(coord) {
+  if (!coord || !ext.midi.instrumentOutput) {
+    return;
+  }
+  const [xStr, yStr] = String(coord).split("-");
+  const x = Number.parseInt(xStr, 10);
+  const y = Number.parseInt(yStr, 10);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return;
+  }
+  const meta = ext.layout.cellMeta?.[coord] || {};
+  highlightInstrumentXY(x, y, getInstrumentColorForMeta(meta, coord));
+}
+
 export function highlightInstrumentXY(x, y, color) {
+  // LinnStrument 128 has a fixed left control strip column; playable grid starts at hardware column 1.
+  highlightInstrumentHardwareXY(x + 1, y, color);
+}
+
+function highlightInstrumentHardwareXY(x, y, color) {
   const out = ext.midi.instrumentOutput;
   if (!out?.channels?.[1]) {
     return;
   }
 
   const channel = out.channels[1];
-  // LinnStrument 128 has a fixed left control strip column; playable grid starts at hardware column 1.
-  channel.sendControlChange(20, x + 1);
+  channel.sendControlChange(20, x);
   channel.sendControlChange(21, y);
   channel.sendControlChange(22, color);
+}
+
+function paintInstrumentUserFirmwareControlStrip() {
+  if (!isLinnStrumentUserFirmwareModeEnabled() || !ext.midi.instrumentOutput) {
+    return;
+  }
+
+  const activeOverlay = isControlOverlayActive();
+  const controlStripColorsByRow = {
+    [USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_1 - 1]: INSTRUMENT_COLORS.octave, // Switch 1 = Oct-
+    [USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_2 - 1]: INSTRUMENT_COLORS.octave, // Switch 2 = Oct+
+    [USER_FIRMWARE_CONTROL_STRIP_ROW_SPLIT - 1]: activeOverlay
+      ? INSTRUMENT_COLORS.selected
+      : INSTRUMENT_COLORS.overlayTrigger, // Split = Overlay
+  };
+
+  for (let y = 0; y < 8; y++) {
+    const color = controlStripColorsByRow[y] ?? INSTRUMENT_COLORS.off;
+    highlightInstrumentHardwareXY(0, y, color);
+  }
 }
 
 async function syncFromLinnStrument() {
   if (!ext.midi.instrumentInput || !ext.midi.instrumentOutput) {
     log.warn("Select LinnStrument input and output first.");
+    return;
+  }
+  if (isLinnStrumentUserFirmwareModeEnabled()) {
+    log.info("Sync From LinnStrument is skipped in User Firmware Mode (input coordinates are fixed: rows=channels 1-8, playable columns=notes 1-N).");
     return;
   }
 
@@ -1013,6 +1458,59 @@ async function setLinnStrumentParamValue(paramNumber, value) {
   await sleep(24);
 }
 
+function sendLinnStrumentControlChange(cc, value, channel = 1) {
+  const out = ext.midi.instrumentOutput;
+  if (!out?.channels?.[channel]) {
+    throw new Error(`Missing LinnStrument output channel ${channel}`);
+  }
+  out.channels[channel].sendControlChange(cc, clampInt(value, 0, 127, 0));
+}
+
+async function configureLinnStrumentInputMode() {
+  if (isLinnStrumentUserFirmwareModeEnabled()) {
+    await configureLinnStrumentUserFirmwareMode();
+    return;
+  }
+  await configureLinnStrumentNoOverlapDetectionMode();
+}
+
+async function configureLinnStrumentUserFirmwareMode() {
+  if (!ext.midi.instrumentOutput) {
+    return;
+  }
+
+  try {
+    // User Firmware Mode gives fixed coordinates:
+    // - Rows are MIDI channels 1..8 (bottom row = 1)
+    // - Playable columns are note numbers 1..N (note 0 is the control-switch column)
+    await setLinnStrumentParamValue(245, 1); // User Firmware Mode = On
+
+    for (let channel = 1; channel <= 8; channel++) {
+      sendLinnStrumentControlChange(9, 0, channel);  // Slide mode off (X-slide translation not implemented yet)
+      sendLinnStrumentControlChange(10, 0, channel); // X data off (avoid extra traffic for now)
+      sendLinnStrumentControlChange(11, 0, channel); // Y data off
+      sendLinnStrumentControlChange(12, 1, channel); // Z data on (poly pressure)
+    }
+    sendLinnStrumentControlChange(13, 0, 1); // Data decimation off
+
+    ext.state.sync = {
+      splitMode: 2,
+      perRowLowestChannel: 1,
+      rowChannelOrderReversed: false,
+    };
+    ext.config.assumeRowChannels = true;
+    ext.config.linnStrumentInputProtocol = LINNSTRUMENT_INPUT_PROTOCOL_USER_FIRMWARE;
+
+    populateUiFromConfig();
+    persistConfig(ext.config);
+    log.success("Configured LinnStrument User Firmware Mode (NRPN 245=1). Enabled Z data on rows 1-8; X/Y/slide disabled for now.");
+    log.warn("User Firmware Mode input is active. Pitch-slide (X) forwarding is not implemented yet in this app.");
+  } catch (err) {
+    console.error(err);
+    log.warn(`Could not enable LinnStrument User Firmware Mode automatically: ${err?.message || err}`);
+  }
+}
+
 async function configureLinnStrumentNoOverlapDetectionMode() {
   if (!ext.midi.instrumentOutput) {
     return;
@@ -1022,12 +1520,14 @@ async function configureLinnStrumentNoOverlapDetectionMode() {
     // Deterministic pad mapping for a 128-pad LinnStrument:
     // - Channel Per Row (rows 0-7 => channels 1-8)
     // - Global Row Offset = No Overlap (unique notes across 16x8 => row interval 16)
-    // - No split and no low-row special mode
-    // - Split Left transposed so the first playable pad is MIDI note 0
+    // - No split and no low-row special mode (both split parameter banks forced off)
+    // - Transposed so the bottom-left pad starts at MIDI note 0 in no-overlap mode
     await setLinnStrumentParamValue(200, 0); // Global Split Active = Off
     await setLinnStrumentParamValue(201, 0); // Global Selected Split = Left
     await setLinnStrumentParamValue(34, 0);  // Split Left LowRow Mode = Off (normal notes)
     await setLinnStrumentParamValue(35, 0);  // Split Left Special = Off
+    await setLinnStrumentParamValue(134, 0); // Split Right LowRow Mode = Off (normal notes)
+    await setLinnStrumentParamValue(135, 0); // Split Right Special = Off
     await setLinnStrumentParamValue(0, 2);   // Split Left MIDI Mode = Channel Per Row
     await setLinnStrumentParamValue(18, 1);  // Split Left Lowest Per-Row Channel = 1
     await setLinnStrumentParamValue(19, clampInt(ext.config.outputPitchBendRangeSemitones, 1, 96, 2));  // Split Left MIDI Bend Range
@@ -1049,7 +1549,7 @@ async function configureLinnStrumentNoOverlapDetectionMode() {
 
     populateUiFromConfig();
     persistConfig(ext.config);
-    log.success("Configured LinnStrument startup mapping: No Overlap (NRPN 227=0), Channel Per Row, playable note range 0-127.");
+    log.success("Configured LinnStrument startup mapping: No Overlap (NRPN 227=0), Channel Per Row, low-row note mode, bottom-left note = 0.");
 
   } catch (err) {
     console.error(err);
@@ -1063,10 +1563,14 @@ async function restoreLinnStrumentDefaultState() {
   }
 
   try {
+    await setLinnStrumentParamValue(245, 0); // User Firmware Mode = Off
+
     // Restore a conservative/default-like playable state and stop the app-specific mapping.
     await setLinnStrumentParamValue(200, 0); // Global Split Active = Off
     await setLinnStrumentParamValue(34, 0);  // Split Left LowRow Mode = Off
     await setLinnStrumentParamValue(35, 0);  // Split Left Special = Off
+    await setLinnStrumentParamValue(134, 0); // Split Right LowRow Mode = Off
+    await setLinnStrumentParamValue(135, 0); // Split Right Special = Off
     await setLinnStrumentParamValue(0, 0);   // Split Left MIDI Mode = One Channel
     await setLinnStrumentParamValue(18, 1);  // Lowest per-row channel = 1
     await setLinnStrumentParamValue(60, 0);  // Row order = Normal
@@ -1134,6 +1638,46 @@ function modTouchId(channel, noteNumber, fallbackCoord = "") {
     return `mod:${noteKey(channel || 1, noteNumber)}`;
   }
   return `mod:${channel || 1}:${fallbackCoord}`;
+}
+
+function overlayTouchIdForEvent(event) {
+  if (!event) {
+    return null;
+  }
+  if (Number.isFinite(event.noteNumber)) {
+    return `overlay:${noteKey(event.channel || 1, event.noteNumber)}`;
+  }
+  if (event.coord) {
+    return `overlay:${event.coord}`;
+  }
+  return "overlay";
+}
+
+function matchesNoOverlapBottomLeftTriggerSignature(noteNumber, channel) {
+  if (!isNoOverlapDetectionMode()) {
+    return false;
+  }
+  if (!ext.config.assumeRowChannels) {
+    return false;
+  }
+  if (!Number.isFinite(noteNumber) || !Number.isFinite(channel)) {
+    return false;
+  }
+
+  const columns = ext.config.linnStrumentSize / 8;
+  if (!Number.isFinite(columns) || columns <= 0) {
+    return false;
+  }
+
+  const lowestChannel = ext.state.sync.perRowLowestChannel ?? 1;
+  const expectedBottomRowChannel = ext.state.sync.rowChannelOrderReversed
+    ? lowestChannel + 7
+    : lowestChannel;
+  if (channel !== expectedBottomRowChannel) {
+    return false;
+  }
+
+  return mod(noteNumber - NO_OVERLAP_COLUMN_PHASE, columns) === 0;
 }
 
 function shouldLightPlayablePad(meta) {

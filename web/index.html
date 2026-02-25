@@ -77,39 +77,23 @@
           </select>
         </div>
 
-        <h2>Device Mapping</h2>
-        <p class="muted">Used to resolve touched pad coordinates from LinnStrument note input.</p>
-        <div class="field-grid">
-          <label for="deviceStartNote">Device Start Note</label>
-          <input id="deviceStartNote" class="form-control" type="number" min="0" max="127" step="1">
+        <h2>Device</h2>
+        <p class="muted">Sync mapping from LinnStrument and resend pitch-bend range.</p>
+        <div hidden>
+          <h2>Device Mapping</h2>
+          <p class="muted">Used to resolve touched pad coordinates from LinnStrument note input.</p>
+          <div class="field-grid">
+            <label for="deviceStartNote">Device Start Note</label>
+            <input id="deviceStartNote" class="form-control" type="number" min="0" max="127" step="1">
 
-          <label for="deviceRowOffset">Device Row Offset (semitones)</label>
-          <input id="deviceRowOffset" class="form-control" type="number" min="0" max="24" step="1">
+            <label for="deviceRowOffset">Device Row Offset (semitones)</label>
+            <input id="deviceRowOffset" class="form-control" type="number" min="0" max="24" step="1">
+          </div>
         </div>
         <div class="button-row">
           <button id="syncLinnState" type="button" class="btn btn-outline-secondary btn-sm">Sync From LinnStrument</button>
           <button id="resendPbRange" type="button" class="btn btn-outline-secondary btn-sm">Resend PB Range</button>
           <button id="panic" type="button" class="btn btn-outline-warning btn-sm">All Notes Off</button>
-        </div>
-
-        <h2>State</h2>
-        <div class="status-grid">
-          <div>
-            <span class="status-label">Key</span>
-            <strong id="selectedKeyDisplay">C</strong>
-          </div>
-          <div>
-            <span class="status-label">Mode</span>
-            <strong id="selectedModeDisplay">Major</strong>
-          </div>
-          <div>
-            <span class="status-label">Routing</span>
-            <strong id="routingStatus">Not connected</strong>
-          </div>
-          <div>
-            <span class="status-label">Assumption</span>
-            <strong id="inputAssumptionDisplay">Rows on MIDI ch 1-8</strong>
-          </div>
         </div>
       </section>
 
@@ -121,11 +105,32 @@
         </div>
 
         <div id="visualization" aria-label="LinnStrument surface visualization"></div>
+        <div class="surface-state-row" aria-label="Current layout state">
+          <label class="state-chip state-chip-edit" for="stateTonicSelect">
+            <span class="state-chip-label">Tonic</span>
+            <select id="stateTonicSelect" class="form-select form-select-sm"></select>
+          </label>
+          <label class="state-chip state-chip-edit" for="stateScaleSelect">
+            <span class="state-chip-label">Scale</span>
+            <select id="stateScaleSelect" class="form-select form-select-sm"></select>
+          </label>
+          <div class="state-chip">
+            <span class="state-chip-label">Mode</span>
+            <div class="btn-group btn-group-sm state-chip-button-group" role="group" aria-label="Note mode">
+              <button id="stateModeScaleBtn" type="button" class="btn btn-outline-secondary state-chip-button">Scale</button>
+              <button id="stateModeAllBtn" type="button" class="btn btn-outline-secondary state-chip-button">All</button>
+            </div>
+          </div>
+          <div class="state-chip">
+            <span class="state-chip-label">Routing</span>
+            <strong id="routingStatus">Not connected</strong>
+          </div>
+        </div>
 
         <div class="surface-footer">
           <div class="surface-header surface-meta">
             <div>
-              <p class="muted">Bottom row = Modwheel. Next row (left 12 pads) selects key. Third row (left pads) selects mode. Upper rows play scale-only notes.</p>
+              <p class="muted">Bottom-left pad = control overlay (tap to toggle, hold for momentary). Remaining bottom row = Modwheel. Note grid starts on the row above unless the overlay is active.</p>
             </div>
             <div class="legend">
               <span class="legend-item legend-mod">Mod</span>

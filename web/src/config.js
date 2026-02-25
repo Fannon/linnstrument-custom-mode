@@ -6,6 +6,7 @@ export const defaultConfig = {
   instrumentOutputPort: "",
   loopOutputPort: "",
   linnStrumentSize: 128,
+  linnStrumentInputProtocol: "user-firmware",
   deviceStartNote: 30,
   deviceRowOffset: 5,
   deviceColOffset: 1,

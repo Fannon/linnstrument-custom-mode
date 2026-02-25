@@ -9,6 +9,7 @@
   --shadow: 0 14px 40px rgba(31, 36, 48, 0.1);
 
   --zone-mod: #dbe8ff;
+  --zone-overlay-trigger: #f6d0ff;
   --zone-key: #d8f2ea;
   --zone-key-accidental: #dbe8ff;
   --zone-octave: #f6d8ff;
@@ -223,6 +224,75 @@ body {
   margin-top: 6px;
 }
 
+.surface-state-row {
+  margin-top: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.state-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.8);
+  font-size: 0.78rem;
+}
+
+.state-chip-label {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.state-chip strong {
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.state-chip-edit {
+  padding-right: 6px;
+}
+
+.state-chip-edit .form-select {
+  min-width: 92px;
+  padding-top: 0.12rem;
+  padding-bottom: 0.12rem;
+  padding-left: 0.45rem;
+  border-radius: 999px;
+  border-color: rgba(31, 36, 48, 0.12);
+  font-size: 0.78rem;
+  line-height: 1.1;
+  background-color: #fff;
+}
+
+.state-chip-edit #stateScaleSelect {
+  min-width: 132px;
+}
+
+.state-chip-button {
+  padding-top: 0.14rem;
+  padding-bottom: 0.14rem;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.state-chip-button-group {
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.state-chip-button-group .state-chip-button {
+  min-width: 56px;
+}
+
 .cell {
   position: relative;
   display: inline-flex;
@@ -259,6 +329,7 @@ body {
 }
 
 .cell.zone-mod { background: var(--zone-mod); }
+.cell.zone-overlay-trigger { background: var(--zone-overlay-trigger); }
 .cell.zone-key { background: var(--zone-key); }
 .cell.zone-key.cell-accidental { background: var(--zone-key-accidental); }
 .cell.zone-octave { background: var(--zone-octave); }
@@ -287,9 +358,9 @@ body {
 
 .cell.cell-active,
 .cell.cell-held {
-  background: var(--zone-active);
+  background: var(--accent-2);
   color: var(--zone-active-text);
-  border-color: rgba(28, 110, 99, 0.9);
+  border-color: rgba(199, 84, 47, 0.9);
   transform: translateY(-1px);
 }
 
@@ -347,6 +418,7 @@ body {
   .legend {
     justify-content: flex-start;
   }
+
 }
 
 @media (max-width: 640px) {

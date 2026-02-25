@@ -18,7 +18,7 @@ export const MODES = [
   { id: "min-blues", name: "Minor Blues", short: "mBlu", intervals: [0, 3, 5, 6, 7, 10] },
 ];
 
-export const NO_OVERLAP_COLUMN_PHASE = 10;
+export const NO_OVERLAP_COLUMN_PHASE = 0;
 
 export function clampInt(value, min, max, fallback) {
   const n = Number.parseInt(value, 10);
@@ -73,11 +73,11 @@ export function getPitchBend14(msg) {
 
   if (Number.isFinite(msg?.rawValue)) {
     const rawValue = Number(msg.rawValue);
-    if (rawValue >= 0 && rawValue <= 16383) {
-      return Math.round(rawValue);
-    }
     if (rawValue >= -8192 && rawValue <= 8191) {
       return Math.round(rawValue + 8192);
+    }
+    if (rawValue >= 0 && rawValue <= 16383) {
+      return Math.round(rawValue);
     }
   }
 
@@ -131,6 +131,31 @@ export function resolveNoOverlapPadCoord(noteNumber, channel, options = {}) {
   if (y < 0 || y >= rows) {
     return null;
   }
+  return coordKey(x, y);
+}
+
+export function resolveUserFirmwarePadCoord(noteNumber, channel, options = {}) {
+  const columns = options.columns ?? 16;
+  const rows = options.rows ?? 8;
+  if (!Number.isFinite(noteNumber)) {
+    return null;
+  }
+
+  // In LinnStrument User Firmware Mode, note 0 is the control-switch column.
+  // Our logical grid excludes that column and starts at the first playable pad.
+  const x = noteNumber - 1;
+  if (x < 0 || x >= columns) {
+    return null;
+  }
+
+  const y = rowIndexFromChannel(channel, {
+    perRowLowestChannel: options.perRowLowestChannel ?? 1,
+    rowChannelOrderReversed: options.rowChannelOrderReversed,
+  });
+  if (y === null || y < 0 || y >= rows) {
+    return null;
+  }
+
   return coordKey(x, y);
 }
 
