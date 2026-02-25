@@ -6,6 +6,7 @@
   "main": "index.js",
   "scripts": {
     "build": "bash ./bin/updateLibs.sh",
+    "test": "node --check web/src/main.js && node --check web/src/grid.js && node --check web/src/config.js && node --check web/src/log.js",
     "deploy": "gh-pages -d ./web",
     "prestart": "bun run build",
     "start": "serve ./web"
