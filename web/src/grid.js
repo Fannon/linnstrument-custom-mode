@@ -76,6 +76,7 @@ export function drawGrid(grid, cellMeta = {}) {
         "cell",
         `note-number-${noteNumber}`,
         meta.zone ? `zone-${meta.zone}` : "",
+        meta.accidental ? "cell-accidental" : "",
         meta.disabled ? "cell-disabled" : "",
         meta.tonic ? "cell-tonic" : "",
         meta.selected ? "cell-selected" : "",

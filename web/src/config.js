@@ -12,6 +12,7 @@ export const defaultConfig = {
   assumeRowChannels: true,
   layoutRowOffset: 4,
   pitchSlideSemitonesPerPad: 1,
+  outputPitchBendRangeSemitones: 2,
   baseRootC: 36,
   selectedKey: 0,
   selectedModeId: "major",

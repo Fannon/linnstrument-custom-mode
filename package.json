@@ -12,6 +12,14 @@
   },
   "author": "Simon Heimler",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Fannon/linnstrument-custom-mode.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Fannon/linnstrument-custom-mode/issues"
+  },
+  "homepage": "https://github.com/Fannon/linnstrument-custom-mode#readme",
   "dependencies": {
     "bootstrap": "^5.3.3",
     "serve": "^14.2.5",

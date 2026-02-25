@@ -10,6 +10,8 @@
 
   --zone-mod: #dbe8ff;
   --zone-key: #d8f2ea;
+  --zone-key-accidental: #dbe8ff;
+  --zone-octave: #f6d8ff;
   --zone-mode: #e9f5d1;
   --zone-play: #f4efdf;
   --zone-tonic: #ffd8b4;
@@ -249,6 +251,8 @@ body {
 
 .cell.zone-mod { background: var(--zone-mod); }
 .cell.zone-key { background: var(--zone-key); }
+.cell.zone-key.cell-accidental { background: var(--zone-key-accidental); }
+.cell.zone-octave { background: var(--zone-octave); }
 .cell.zone-mode { background: var(--zone-mode); }
 .cell.zone-play { background: var(--zone-play); }
 .cell.cell-tonic { background: var(--zone-tonic); }

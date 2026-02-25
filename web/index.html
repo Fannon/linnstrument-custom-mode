@@ -20,13 +20,13 @@
   <div class="page-shell">
     <header class="app-header">
       <div>
-        <p class="eyebrow">LinnStrument</p>
-        <h1>LinnStrument Custom Mode Prototype</h1>
-        <p class="lede">Preset-based scale layout router for LinnStrument + one MIDI loop output.</p>
+        <!-- <p class="eyebrow">LinnStrument</p> -->
+        <h1>LinnStrument Custom Mode <small class="text-muted">Prototype</small></h1>
+        <p class="lede">Preset-based scale layout router for LinnStrument</p>
       </div>
       <div class="header-links">
-        <a href="https://github.com/Fannon/linnstrument-light-guide" target="_blank" rel="noreferrer">GitHub</a>
-        <a href="https://github.com/Fannon/linnstrument-light-guide#readme" target="_blank" rel="noreferrer">README</a>
+        <a href="https://github.com/Fannon/linnstrument-custom-mode" target="_blank" rel="noreferrer">GitHub</a>
+        <a href="https://github.com/Fannon/linnstrument-custom-mode#readme" target="_blank" rel="noreferrer">README</a>
       </div>
     </header>
 
@@ -63,6 +63,15 @@
             <option value="1">1 pad = 1 semitone</option>
             <option value="2">1 pad = 2 semitones</option>
           </select>
+
+          <label for="outputPitchBendRangeSemitones">Output Pitch Bend Range</label>
+          <select id="outputPitchBendRangeSemitones" class="form-select">
+            <option value="1">±1 semitone</option>
+            <option value="2">±2 semitones</option>
+            <option value="12">±12 semitones</option>
+            <option value="24">±24 semitones</option>
+            <option value="48">±48 semitones</option>
+          </select>
         </div>
 
         <h2>Device Mapping</h2>
@@ -76,6 +85,7 @@
         </div>
         <div class="button-row">
           <button id="syncLinnState" type="button" class="btn btn-outline-secondary btn-sm">Sync From LinnStrument</button>
+          <button id="resendPbRange" type="button" class="btn btn-outline-secondary btn-sm">Resend PB Range</button>
           <button id="panic" type="button" class="btn btn-outline-warning btn-sm">All Notes Off</button>
         </div>
 
@@ -118,7 +128,7 @@
         <div id="visualization" aria-label="LinnStrument surface visualization"></div>
 
         <div class="surface-footer">
-          <small class="muted">Prototype assumptions: 128-pad LinnStrument, row-channel input (channels 1-8), default device mapping `start=30`, `rowOffset=5` unless synced.</small>
+          <!-- <small class="muted">Prototype assumptions: 128-pad LinnStrument plus left config column (preserved), row-channel input (channels 1-8), default device mapping `start=30`, `rowOffset=5` unless synced.</small> -->
         </div>
       </section>
 
