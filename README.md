@@ -53,6 +53,22 @@ Notes:
 Optional:
 - `npm` can still run the scripts, but Bun is the expected dev tooling for this repo.
 
+## Test & Verify (Bun)
+
+```bash
+bun run test
+bun run build
+# or both:
+bun run verify
+```
+
+What this does:
+- `bun run test`: Bun unit tests (`test/*.test.js`) + syntax checks for browser source files
+- `bun run build`: refreshes `web/lib/*` from `node_modules`
+- `bun run verify`: standard local pre-commit/pre-push loop (`test + build`)
+
+CI and Pages builds use `bun install --frozen-lockfile`, so keep `bun.lock` committed when dependencies change.
+
 ## Project Docs
 
 - Design / roadmap: `docs/custom-mode-web-app-design.md`
@@ -62,12 +78,12 @@ Optional:
 ## Current Limitations
 
 - Prototype quality UI and preset system (not yet a full visual custom-mode editor)
-- Expressive remapping is partial (pitch bend, poly pressure, channel aftertouch, modwheel row are implemented; Y-axis/timbre mapping is still pending)
+- Expressive remapping is partial (pitch bend, poly aftertouch forwarding, modwheel row are implemented; Y-axis/timbre mapping is still pending)
 - Most thoroughly tested with 128-pad LinnStrument assumptions
 
 ## Next Steps (Planned)
 
-- Add unit tests for scale layout and routing logic
-- Add Bun test + Biome linting
+- Expand unit tests for full layout generation and routing edge cases
+- Add Biome linting
 - Add more presets and eventually a real layout editor
 - Improve full expressive MPE-style remapping

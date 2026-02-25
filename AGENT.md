@@ -42,9 +42,6 @@ The project is mostly consistent with the new prototype direction:
 - `package.json` startup/build flow matches the static app setup
 - Unused legacy recorder/statistics modules and `jzz-midi-smf` dependency were removed
 
-Remaining intentional legacy aspect:
-- GitHub repo URL still uses the original repository name (`linnstrument-light-guide`)
-
 ## Guidance For Agents
 
 - Default to editing the active files listed above.
@@ -53,9 +50,25 @@ Remaining intentional legacy aspect:
 - Keep `web/index.html` and `bin/updateLibs.sh` aligned when changing frontend dependencies.
 - Avoid reintroducing recorder/statistics/JZZ-SMF code unless explicitly requested.
 
+## Verify Loop (Required)
+
+Use this loop for code changes, especially MIDI mapping/layout changes:
+
+1. `bun run test`
+   - Runs Bun unit tests for extracted core mapping/theory logic
+   - Runs syntax checks for browser source files (`web/src/*.js`)
+2. `bun run build`
+   - Rebuilds static browser dependencies into `web/lib/`
+3. `bun run verify`
+   - Convenience command for `test + build` (preferred before handoff)
+
+Notes:
+- CI (`.github/workflows/ci.yaml`) runs `bun install --frozen-lockfile` and `bun run verify`.
+- Add tests in `test/*.test.js` when touching pure mapping/math logic; refactor from `web/src/main.js` into pure helpers first if needed.
+
 ## Good Next Refactors (If Requested)
 
-- Extract pure layout/preset logic from `web/src/main.js` for unit testing
-- Add Bun tooling (`bun test`) and Biome linting
-- Add tests for “scale-only notes” behavior and row-offset mapping
+- Expand pure layout/routing extraction from `web/src/main.js` for deeper unit testing
+- Add Biome linting / formatting checks
+- Expand tests for full layout generation (key row, mode row, octave pads, same-note highlighting rules)
 - Add more presets / editable layout schema

@@ -1,37 +1,21 @@
 import { log } from "./log.js";
 import { initConfig, persistConfig, clearPersistedConfig, defaultConfig } from "./config.js";
 import { resetGrid, getGridDict, generateGrid, drawGrid, coordKey } from "./grid.js";
-
-const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-
-const MODES = [
-  { id: "major", name: "Major", short: "Maj", intervals: [0, 2, 4, 5, 7, 9, 11] },
-  { id: "minor", name: "Minor", short: "Min", intervals: [0, 2, 3, 5, 7, 8, 10] },
-  { id: "major-pent", name: "Major Pentatonic", short: "MajP", intervals: [0, 2, 4, 7, 9] },
-  { id: "minor-pent", name: "Minor Pentatonic", short: "MinP", intervals: [0, 3, 5, 7, 10] },
-  { id: "dorian", name: "Dorian", short: "Dor", intervals: [0, 2, 3, 5, 7, 9, 10] },
-  { id: "mixolydian", name: "Mixolydian", short: "Mix", intervals: [0, 2, 4, 5, 7, 9, 10] },
-  { id: "lydian", name: "Lydian", short: "Lyd", intervals: [0, 2, 4, 6, 7, 9, 11] },
-  { id: "phrygian", name: "Phrygian", short: "Phr", intervals: [0, 1, 3, 5, 7, 8, 10] },
-  { id: "locrian", name: "Locrian", short: "Loc", intervals: [0, 1, 3, 5, 6, 8, 10] },
-  { id: "harm-min", name: "Harmonic Minor", short: "Hm", intervals: [0, 2, 3, 5, 7, 8, 11] },
-  { id: "mel-min", name: "Melodic Minor", short: "Mm", intervals: [0, 2, 3, 5, 7, 9, 11] },
-  { id: "wholetone", name: "Whole Tone", short: "WT", intervals: [0, 2, 4, 6, 8, 10] },
-  { id: "dim-wh", name: "Diminished (WH)", short: "Dim", intervals: [0, 2, 3, 5, 6, 8, 9, 11] },
-  { id: "maj-blues", name: "Major Blues", short: "MBlu", intervals: [0, 2, 3, 4, 7, 9] },
-  { id: "min-blues", name: "Minor Blues", short: "mBlu", intervals: [0, 3, 5, 6, 7, 10] },
-];
-
-const PRESETS = [
-  {
-    id: "scale-mode-basic-v1",
-    name: "Scale Mode (Mod row + Key/Mode rows)",
-    description: "Bottom row sends modwheel from pressure. Next rows select key and mode. Upper rows output scale-only notes.",
-    playableRowsStart: 3,
-  },
-];
-
-const PRESET_BY_ID = Object.fromEntries(PRESETS.map((preset) => [preset.id, preset]));
+import { PRESETS, buildLayoutDefinition as buildLayoutDefinitionCore } from "./layout-logic.js";
+import { readLinnStrumentParamValue } from "./linnstrument-sync.js";
+import {
+  NOTE_NAMES,
+  MODES,
+  clampInt,
+  parsePitchSlideSetting,
+  mod,
+  getPitchBend14,
+  scalePitchBend14,
+  rowIndexFromChannel as rowIndexFromChannelCore,
+  resolveNoOverlapPadCoord as resolveNoOverlapPadCoordCore,
+  shouldLightPlayablePad as shouldLightPlayablePadCore,
+  getActiveLayoutRowOffset as getActiveLayoutRowOffsetCore,
+} from "./core-logic.js";
 const MODE_BY_ID = Object.fromEntries(MODES.map((mode) => [mode.id, mode]));
 
 const INSTRUMENT_COLORS = {
@@ -407,97 +391,7 @@ function rebuildLayout(options = {}) {
 }
 
 function buildLayoutDefinition() {
-  const cellMeta = {};
-  const padMap = {};
-  const columns = ext.config.linnStrumentSize / 8;
-  const preset = PRESET_BY_ID[ext.config.presetId] || PRESETS[0];
-  const mode = MODE_BY_ID[ext.config.selectedModeId] || MODES[0];
-  const rootPc = ext.config.selectedKey % 12;
-  const rootMidi = ext.config.baseRootC + rootPc;
-
-  for (let x = 0; x < columns; x++) {
-    for (let y = 0; y < 8; y++) {
-      const key = coordKey(x, y);
-      const meta = { zone: "disabled", label: "", subLabel: "", disabled: true };
-      let pad = { role: "disabled" };
-
-      if (y === 0) {
-        meta.zone = "mod";
-        meta.label = "MW";
-        meta.subLabel = x === 0 ? "CC1" : "";
-        meta.disabled = false;
-        pad = { role: "mod" };
-      } else if (y === 1) {
-        if (x < 12) {
-          meta.zone = "key";
-          meta.label = NOTE_NAMES[x];
-          meta.subLabel = "key";
-          meta.disabled = false;
-          meta.accidental = isAccidentalPc(x);
-          meta.selected = ext.config.selectedKey === x;
-          pad = { role: "key-select", keyPc: x };
-        } else if (x === columns - 2) {
-          meta.zone = "octave";
-          meta.label = "Oct-";
-          meta.subLabel = "out";
-          meta.disabled = false;
-          pad = { role: "octave-down" };
-        } else if (x === columns - 1) {
-          meta.zone = "octave";
-          meta.label = "Oct+";
-          meta.subLabel = "out";
-          meta.disabled = false;
-          pad = { role: "octave-up" };
-        } else {
-          meta.zone = "disabled";
-          meta.label = "";
-          meta.subLabel = "";
-        }
-      } else if (y === 2) {
-        if (x < MODES.length) {
-          const rowMode = MODES[x];
-          meta.zone = "mode";
-          meta.label = rowMode.short;
-          meta.subLabel = "mode";
-          meta.disabled = false;
-          meta.selected = ext.config.selectedModeId === rowMode.id;
-          pad = { role: "mode-select", modeId: rowMode.id };
-        } else if (x === columns - 1) {
-          meta.zone = "mode";
-          meta.label = "All";
-          meta.subLabel = "notes";
-          meta.disabled = false;
-          meta.selected = Boolean(ext.config.allNotesEnabled);
-          pad = { role: "toggle-all-notes" };
-        } else {
-          meta.zone = "disabled";
-          meta.label = "";
-          meta.subLabel = "";
-        }
-      } else if (y >= preset.playableRowsStart) {
-        const degreeIndex = x + (y - preset.playableRowsStart) * getActiveLayoutRowOffset();
-        const mappedNote = ext.config.allNotesEnabled
-          ? clampInt(rootMidi + degreeIndex, 0, 127, rootMidi)
-          : scaleNoteAt(rootMidi, mode, degreeIndex);
-        const pc = mappedNote % 12;
-        const octave = Math.floor(mappedNote / 12) - 1;
-
-        meta.zone = "play";
-        meta.label = NOTE_NAMES[pc];
-        meta.subLabel = `o${octave}`;
-        meta.disabled = false;
-        meta.tonic = pc === rootPc;
-        meta.inSelectedScale = isPitchClassInMode(pc, rootPc, mode);
-        meta.noteNumber = mappedNote;
-        pad = { role: "play-note", outNote: mappedNote };
-      }
-
-      cellMeta[key] = meta;
-      padMap[key] = pad;
-    }
-  }
-
-  return { cellMeta, padMap };
+  return buildLayoutDefinitionCore(ext.config, defaultConfig);
 }
 
 function handleNoteOn(msg) {
@@ -702,30 +596,13 @@ function isNoOverlapDetectionMode() {
 }
 
 function resolveNoOverlapPadCoord(noteNumber, channel) {
-  const columns = ext.config.linnStrumentSize / 8;
-  const rows = 8;
-  if (!Number.isFinite(noteNumber)) {
-    return null;
-  }
-  if (noteNumber < 0 || noteNumber >= columns * rows) {
-    return null;
-  }
-
-  const x = mod(noteNumber - getNoOverlapColumnPhase(), columns);
-  const rowFromChannel = ext.config.assumeRowChannels ? rowIndexFromChannel(channel) : null;
-  const y = rowFromChannel ?? Math.floor(noteNumber / columns);
-
-  if (y < 0 || y >= rows) {
-    return null;
-  }
-  return coordKey(x, y);
-}
-
-function getNoOverlapColumnPhase() {
-  // LinnStrument "No overlap" note numbering is cyclic across the 128 pads and the
-  // leftmost playable column is phase-shifted under the startup mapping we apply.
-  // Empirically, top-left playable pads on a 128 model report 106..109 on channel 8.
-  return 10;
+  return resolveNoOverlapPadCoordCore(noteNumber, channel, {
+    columns: ext.config.linnStrumentSize / 8,
+    rows: 8,
+    assumeRowChannels: ext.config.assumeRowChannels,
+    perRowLowestChannel: ext.state.sync.perRowLowestChannel ?? 1,
+    rowChannelOrderReversed: Boolean(ext.state.sync.rowChannelOrderReversed),
+  });
 }
 
 function setPadHeld(coord, held) {
@@ -922,6 +799,11 @@ function sendRawToLoop(data) {
 
 function setLoopPitchBendRangeSemitones(semitones = 2) {
   const value = clampInt(semitones, 0, 127, 2);
+  if (!ext.midi.loopOutput) {
+    log.warn(`Skipped loop pitch bend range resend (no loop MIDI output). Intended value: ±${value} semitones.`);
+    return false;
+  }
+
   for (let channel = 1; channel <= 16; channel++) {
     const ch = (channel - 1) & 0x0f;
     sendRawToLoop([0xb0 | ch, 101, 0]);
@@ -932,6 +814,7 @@ function setLoopPitchBendRangeSemitones(semitones = 2) {
     sendRawToLoop([0xb0 | ch, 100, 127]);
   }
   log.info(`Set loop pitch bend range to ±${value} semitones on channels 1-16.`);
+  return true;
 }
 
 async function resendPitchBendRangeFromConfig() {
@@ -941,7 +824,7 @@ async function resendPitchBendRangeFromConfig() {
     96,
     defaultConfig.outputPitchBendRangeSemitones,
   );
-  setLoopPitchBendRangeSemitones(semitones);
+  const loopSent = setLoopPitchBendRangeSemitones(semitones);
   if (ext.midi.instrumentOutput) {
     try {
       await setLinnStrumentParamValue(19, semitones);
@@ -949,7 +832,7 @@ async function resendPitchBendRangeFromConfig() {
       console.warn("Failed to resend LinnStrument bend range", err);
     }
   }
-  log.info(`Resent pitch bend range: ±${semitones} semitones.`);
+  log.info(`Resent pitch bend range: ±${semitones} semitones (loop=${loopSent ? "ok" : "skipped"}, linnstrument=${ext.midi.instrumentOutput ? "ok/attempted" : "skipped"}).`);
 }
 
 function findCoordByRoutedNote(channel, noteNumber) {
@@ -977,7 +860,7 @@ function clearHeldState() {
   if (ext.state.routedNotesByPad.size > 0 || ext.state.activeLoopNotes.size > 0) {
     allNotesOff();
   }
-  resetGrid();
+  resetGrid(highlightInstrumentXY);
   ext.state.heldPads.clear();
   ext.state.modPressuresByPad.clear();
   ext.state.modChannelsByPad.clear();
@@ -1111,40 +994,14 @@ async function syncFromLinnStrument() {
 }
 
 async function getLinnStrumentParamValue(paramNumber) {
-  const timeout = 350;
-  return promiseTimeout(
-    timeout,
-    new Promise((resolve, reject) => {
-      let settled = false;
-      const input = ext.midi.instrumentInput;
-      const output = ext.midi.instrumentOutput;
-      if (!input || !output) {
-        reject(new Error("Missing LinnStrument input/output"));
-        return;
-      }
-
-      input.channels[1].addListener(
-        "nrpn",
-        (msg) => {
-          if (settled) {
-            return;
-          }
-          if (msg.message.dataBytes[0] === 38) {
-            settled = true;
-            resolve(msg.message.dataBytes[1]);
-          }
-        },
-        { duration: timeout },
-      );
-
-      try {
-        output.sendNrpnValue(nrpn(299), nrpn(paramNumber), { channels: 1 });
-      } catch (err) {
-        settled = true;
-        reject(err);
-      }
-    }),
-  );
+  return readLinnStrumentParamValue({
+    inputChannel: ext.midi.instrumentInput?.channels?.[1],
+    output: ext.midi.instrumentOutput,
+    paramNumber,
+    timeoutMs: 350,
+    withTimeout: promiseTimeout,
+    nrpnEncoder: nrpn,
+  });
 }
 
 async function setLinnStrumentParamValue(paramNumber, value) {
@@ -1219,7 +1076,7 @@ async function restoreLinnStrumentDefaultState() {
     await setLinnStrumentParamValue(38, 7);  // Split Left Transpose Lights = 0
 
     // Clear custom colors on the app's 16x8 grid area.
-    resetGrid();
+    resetGrid(highlightInstrumentXY);
 
     log.success("Restored LinnStrument defaults (One Channel, row offset 5, no transpose) and cleared app-applied pad colors.");
   } catch (err) {
@@ -1236,10 +1093,6 @@ function nrpn(value) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function isAccidentalPc(pc) {
-  return [1, 3, 6, 8, 10].includes(mod(pc, 12));
 }
 
 function shiftOutputOctave(deltaOctaves) {
@@ -1273,9 +1126,7 @@ function logActiveState(trigger = "state") {
 }
 
 function getActiveLayoutRowOffset() {
-  return ext.config.allNotesEnabled
-    ? clampInt(ext.config.layoutRowOffsetAllNotes, 1, 12, defaultConfig.layoutRowOffsetAllNotes)
-    : clampInt(ext.config.layoutRowOffsetScale, 1, 12, defaultConfig.layoutRowOffsetScale);
+  return getActiveLayoutRowOffsetCore(ext.config, defaultConfig);
 }
 
 function modTouchId(channel, noteNumber, fallbackCoord = "") {
@@ -1286,36 +1137,7 @@ function modTouchId(channel, noteNumber, fallbackCoord = "") {
 }
 
 function shouldLightPlayablePad(meta) {
-  if (meta?.zone !== "play" || !Number.isFinite(meta?.noteNumber)) {
-    return true;
-  }
-
-  if (!ext.config.allNotesEnabled) {
-    return true;
-  }
-
-  return Boolean(meta.inSelectedScale);
-}
-
-function isPitchClassInMode(pc, rootPc, mode) {
-  if (!mode?.intervals?.length) {
-    return true;
-  }
-  const notePc = mod(pc, 12);
-  const tonicPc = mod(rootPc, 12);
-  return mode.intervals.some((interval) => mod(tonicPc + interval, 12) === notePc);
-}
-
-function scaleNoteAt(rootMidi, mode, degreeIndex) {
-  if (!mode || !mode.intervals?.length) {
-    return rootMidi;
-  }
-
-  const degreeCount = mode.intervals.length;
-  const octaveOffset = Math.floor(degreeIndex / degreeCount);
-  const degreeInMode = mod(degreeIndex, degreeCount);
-  const note = rootMidi + octaveOffset * 12 + mode.intervals[degreeInMode];
-  return clampInt(note, 0, 127, rootMidi);
+  return shouldLightPlayablePadCore(meta, ext.config.allNotesEnabled);
 }
 
 function noteKey(channel, noteNumber) {
@@ -1326,34 +1148,8 @@ function getChannel(msg) {
   return msg?.message?.channel ?? msg?.channel ?? 1;
 }
 
-function getPitchBend14(msg) {
-  const dataBytes = msg?.dataBytes;
-  if (dataBytes && dataBytes.length >= 2) {
-    return ((dataBytes[1] & 0x7f) << 7) | (dataBytes[0] & 0x7f);
-  }
-
-  if (Number.isFinite(msg?.rawValue)) {
-    const rawValue = Number(msg.rawValue);
-    if (rawValue >= 0 && rawValue <= 16383) {
-      return Math.round(rawValue);
-    }
-    if (rawValue >= -8192 && rawValue <= 8191) {
-      return Math.round(rawValue + 8192);
-    }
-  }
-
-  if (typeof msg?.value === "number") {
-    return clampInt(Math.round(((msg.value + 1) / 2) * 16383), 0, 16383, 8192);
-  }
-
-  return 8192;
-}
-
 function scalePitchBendForConfig(value14) {
-  const center = 8192;
-  const factor = Number(ext.config.pitchSlideSemitonesPerPad) || 1;
-  const delta = value14 - center;
-  return clampInt(Math.round(center + delta * factor), 0, 16383, center);
+  return scalePitchBend14(value14, ext.config.pitchSlideSemitonesPerPad);
 }
 
 function shouldForwardPitchBendOnChannel(channel) {
@@ -1372,12 +1168,10 @@ function shouldForwardPitchBendOnChannel(channel) {
 }
 
 function rowIndexFromChannel(channel) {
-  const lowestChannel = ext.state.sync.perRowLowestChannel ?? 1;
-  const rowIndex = channel - lowestChannel;
-  if (rowIndex < 0 || rowIndex > 7) {
-    return null;
-  }
-  return ext.state.sync.rowChannelOrderReversed ? 7 - rowIndex : rowIndex;
+  return rowIndexFromChannelCore(channel, {
+    perRowLowestChannel: ext.state.sync.perRowLowestChannel ?? 1,
+    rowChannelOrderReversed: ext.state.sync.rowChannelOrderReversed,
+  });
 }
 
 function rowHasPlayablePads(row) {
@@ -1407,26 +1201,6 @@ function setText(id, text) {
   if (el) {
     el.textContent = text;
   }
-}
-
-function clampInt(value, min, max, fallback) {
-  const n = Number.parseInt(value, 10);
-  if (!Number.isFinite(n)) {
-    return fallback;
-  }
-  return Math.min(max, Math.max(min, n));
-}
-
-function parsePitchSlideSetting(value, fallback = 1) {
-  const n = Number.parseFloat(value);
-  if (n === 0.5 || n === 1 || n === 2) {
-    return n;
-  }
-  return fallback;
-}
-
-function mod(n, m) {
-  return ((n % m) + m) % m;
 }
 
 function debounce(fn, delay) {

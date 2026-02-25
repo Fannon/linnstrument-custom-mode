@@ -1,5 +1,3 @@
-import { highlightInstrumentXY } from "./main.js";
-
 export function generateGrid(startNoteNumber = 30, rowOffset = 5, colOffset = 1) {
   const grid = [];
   const columns = window.ext.config.linnStrumentSize / 8;
@@ -31,12 +29,14 @@ export function getGridDict(grid, startNoteNumber) {
   return gridDict;
 }
 
-export function resetGrid() {
+export function resetGrid(clearInstrumentXY = null) {
   const columns = window.ext.config.linnStrumentSize / 8;
 
-  for (let x = 0; x < columns; x++) {
-    for (let y = 0; y <= 7; y++) {
-      highlightInstrumentXY(x, y, 0);
+  if (typeof clearInstrumentXY === "function") {
+    for (let x = 0; x < columns; x++) {
+      for (let y = 0; y <= 7; y++) {
+        clearInstrumentXY(x, y, 0);
+      }
     }
   }
 
