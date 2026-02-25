@@ -158,6 +158,7 @@ body {
 
 .surface-panel {
   grid-column: 2;
+  padding-top: 4px;
 }
 
 .log-panel {
@@ -170,6 +171,14 @@ body {
   gap: 12px;
   align-items: flex-start;
   margin-bottom: 12px;
+}
+
+.surface-meta {
+  margin-bottom: 0;
+}
+
+.surface-meta .muted {
+  margin: 0;
 }
 
 .legend {
@@ -271,6 +280,11 @@ body {
   box-shadow: inset 0 0 0 2px rgba(199, 84, 47, 0.18);
 }
 
+.cell.cell-same-note {
+  border-color: rgba(199, 84, 47, 0.8);
+  box-shadow: inset 0 0 0 2px rgba(199, 84, 47, 0.12);
+}
+
 .cell.cell-active,
 .cell.cell-held {
   background: var(--zone-active);
@@ -285,7 +299,7 @@ body {
 }
 
 .surface-footer {
-  margin-top: 10px;
+  margin-top: 6px;
 }
 
 .log-header {

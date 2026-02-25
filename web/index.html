@@ -54,8 +54,11 @@
           <label for="presetSelect">Preset Layout</label>
           <select id="presetSelect" class="form-select"></select>
 
-          <label for="layoutRowOffset">Note Layout Row Offset</label>
-          <input id="layoutRowOffset" class="form-control" type="number" min="1" max="12" step="1">
+          <label for="layoutRowOffsetScale">Scale Row Offset</label>
+          <input id="layoutRowOffsetScale" class="form-control" type="number" min="1" max="12" step="1">
+
+          <label for="layoutRowOffsetAllNotes">All Notes Row Offset</label>
+          <input id="layoutRowOffsetAllNotes" class="form-control" type="number" min="1" max="12" step="1">
 
           <label for="pitchSlideSemitonesPerPad">Horizontal Slide Pitch Bend</label>
           <select id="pitchSlideSemitonesPerPad" class="form-select">
@@ -113,21 +116,25 @@
       <section class="panel surface-panel">
         <div class="surface-header">
           <div>
-            <h2>Surface</h2>
-            <p class="muted">Bottom row = Modwheel. Next row (left 12 pads) selects key. Third row (left pads) selects mode. Upper rows play scale-only notes.</p>
-          </div>
-          <div class="legend">
-            <span class="legend-item legend-mod">Mod</span>
-            <span class="legend-item legend-key">Key</span>
-            <span class="legend-item legend-mode">Mode</span>
-            <span class="legend-item legend-play">Scale Note</span>
-            <span class="legend-item legend-tonic">Tonic</span>
+            <!-- <h2>Surface</h2> -->
           </div>
         </div>
 
         <div id="visualization" aria-label="LinnStrument surface visualization"></div>
 
         <div class="surface-footer">
+          <div class="surface-header surface-meta">
+            <div>
+              <p class="muted">Bottom row = Modwheel. Next row (left 12 pads) selects key. Third row (left pads) selects mode. Upper rows play scale-only notes.</p>
+            </div>
+            <div class="legend">
+              <span class="legend-item legend-mod">Mod</span>
+              <span class="legend-item legend-key">Key</span>
+              <span class="legend-item legend-mode">Mode</span>
+              <span class="legend-item legend-play">Scale Note</span>
+              <span class="legend-item legend-tonic">Tonic</span>
+            </div>
+          </div>
           <!-- <small class="muted">Prototype assumptions: 128-pad LinnStrument plus left config column (preserved), row-channel input (channels 1-8), default device mapping `start=30`, `rowOffset=5` unless synced.</small> -->
         </div>
       </section>

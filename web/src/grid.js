@@ -40,8 +40,8 @@ export function resetGrid() {
     }
   }
 
-  document.querySelectorAll(".cell-active, .cell-held, .cell-selected-live").forEach((el) => {
-    el.classList.remove("cell-active", "cell-held", "cell-selected-live");
+  document.querySelectorAll(".cell-active, .cell-held, .cell-selected-live, .cell-same-note").forEach((el) => {
+    el.classList.remove("cell-active", "cell-held", "cell-selected-live", "cell-same-note");
   });
 }
 

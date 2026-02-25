@@ -20,7 +20,6 @@ const MODES = [
   { id: "dim-wh", name: "Diminished (WH)", short: "Dim", intervals: [0, 2, 3, 5, 6, 8, 9, 11] },
   { id: "maj-blues", name: "Major Blues", short: "MBlu", intervals: [0, 2, 3, 4, 7, 9] },
   { id: "min-blues", name: "Minor Blues", short: "mBlu", intervals: [0, 3, 5, 6, 7, 10] },
-  { id: "chromatic", name: "Chromatic", short: "Chr", intervals: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] },
 ];
 
 const PRESETS = [
@@ -46,6 +45,7 @@ const INSTRUMENT_COLORS = {
   play: 8,
   tonic: 9,
   selected: 1,
+  sameNote: 1,
 };
 
 export const ext = {
@@ -174,7 +174,8 @@ function populatePresetSelect() {
 
 function populateUiFromConfig() {
   setValue("presetSelect", ext.config.presetId);
-  setValue("layoutRowOffset", ext.config.layoutRowOffset);
+  setValue("layoutRowOffsetScale", ext.config.layoutRowOffsetScale);
+  setValue("layoutRowOffsetAllNotes", ext.config.layoutRowOffsetAllNotes);
   setValue("pitchSlideSemitonesPerPad", ext.config.pitchSlideSemitonesPerPad);
   setValue("outputPitchBendRangeSemitones", ext.config.outputPitchBendRangeSemitones);
   setValue("deviceStartNote", ext.config.deviceStartNote);
@@ -183,7 +184,18 @@ function populateUiFromConfig() {
 
 function readConfigFromUi() {
   const presetId = getValue("presetSelect") || defaultConfig.presetId;
-  const layoutRowOffset = clampInt(getValue("layoutRowOffset"), 1, 12, defaultConfig.layoutRowOffset);
+  const layoutRowOffsetScale = clampInt(
+    getValue("layoutRowOffsetScale"),
+    1,
+    12,
+    defaultConfig.layoutRowOffsetScale,
+  );
+  const layoutRowOffsetAllNotes = clampInt(
+    getValue("layoutRowOffsetAllNotes"),
+    1,
+    12,
+    defaultConfig.layoutRowOffsetAllNotes,
+  );
   const pitchSlideSemitonesPerPad = parsePitchSlideSetting(
     getValue("pitchSlideSemitonesPerPad"),
     defaultConfig.pitchSlideSemitonesPerPad,
@@ -200,7 +212,8 @@ function readConfigFromUi() {
   ext.config = {
     ...ext.config,
     presetId,
-    layoutRowOffset,
+    layoutRowOffsetScale,
+    layoutRowOffsetAllNotes,
     pitchSlideSemitonesPerPad,
     outputPitchBendRangeSemitones,
     deviceStartNote,
@@ -210,7 +223,8 @@ function readConfigFromUi() {
     loopOutputPort: getValue("loopOutputPort") || "",
   };
 
-  setValue("layoutRowOffset", ext.config.layoutRowOffset);
+  setValue("layoutRowOffsetScale", ext.config.layoutRowOffsetScale);
+  setValue("layoutRowOffsetAllNotes", ext.config.layoutRowOffsetAllNotes);
   setValue("pitchSlideSemitonesPerPad", ext.config.pitchSlideSemitonesPerPad);
   setValue("outputPitchBendRangeSemitones", ext.config.outputPitchBendRangeSemitones);
   setValue("deviceStartNote", ext.config.deviceStartNote);
@@ -338,7 +352,7 @@ async function connectMidiFromConfig(options = {}) {
     ext.midi.loopOutput = WebMidi.getOutputByName(ext.config.loopOutputPort) || null;
     if (ext.midi.loopOutput) {
       log.success(`Connected loop output: ${ext.config.loopOutputPort}`);
-      setLoopPitchBendRangeSemitones(2);
+      setLoopPitchBendRangeSemitones(ext.config.outputPitchBendRangeSemitones);
     } else {
       log.warn(`Loop output not found: ${ext.config.loopOutputPort}`);
     }
@@ -448,14 +462,23 @@ function buildLayoutDefinition() {
           meta.disabled = false;
           meta.selected = ext.config.selectedModeId === rowMode.id;
           pad = { role: "mode-select", modeId: rowMode.id };
+        } else if (x === columns - 1) {
+          meta.zone = "mode";
+          meta.label = "All";
+          meta.subLabel = "notes";
+          meta.disabled = false;
+          meta.selected = Boolean(ext.config.allNotesEnabled);
+          pad = { role: "toggle-all-notes" };
         } else {
           meta.zone = "disabled";
           meta.label = "";
           meta.subLabel = "";
         }
       } else if (y >= preset.playableRowsStart) {
-        const degreeIndex = x + (y - preset.playableRowsStart) * ext.config.layoutRowOffset;
-        const mappedNote = scaleNoteAt(rootMidi, mode, degreeIndex);
+        const degreeIndex = x + (y - preset.playableRowsStart) * getActiveLayoutRowOffset();
+        const mappedNote = ext.config.allNotesEnabled
+          ? clampInt(rootMidi + degreeIndex, 0, 127, rootMidi)
+          : scaleNoteAt(rootMidi, mode, degreeIndex);
         const pc = mappedNote % 12;
         const octave = Math.floor(mappedNote / 12) - 1;
 
@@ -464,6 +487,7 @@ function buildLayoutDefinition() {
         meta.subLabel = `o${octave}`;
         meta.disabled = false;
         meta.tonic = pc === rootPc;
+        meta.inSelectedScale = isPitchClassInMode(pc, rootPc, mode);
         meta.noteNumber = mappedNote;
         pad = { role: "play-note", outNote: mappedNote };
       }
@@ -509,6 +533,15 @@ function handleNoteOn(msg) {
       logActiveState("scale");
       break;
     }
+    case "toggle-all-notes": {
+      ext.config.allNotesEnabled = !ext.config.allNotesEnabled;
+      persistConfig(ext.config);
+      rebuildLayout();
+      flashSelection(event.coord);
+      log.info(`All notes ${ext.config.allNotesEnabled ? "enabled" : "disabled"} (selected scale remains ${MODE_BY_ID[ext.config.selectedModeId]?.name || ext.config.selectedModeId}).`);
+      logActiveState("all-notes");
+      break;
+    }
     case "octave-down": {
       if (shiftOutputOctave(-1)) {
         flashSelection(event.coord);
@@ -524,6 +557,8 @@ function handleNoteOn(msg) {
     case "play-note": {
       ext.state.routedNotesByPad.set(event.coord, { note: pad.outNote, channel: event.channel });
       sendLoopNoteOn(pad.outNote, event.velocity, event.channel);
+      refreshSameOutputNoteHighlights(pad.outNote);
+      refreshInstrumentSameOutputNoteHighlights(pad.outNote);
       break;
     }
     default:
@@ -549,6 +584,8 @@ function handleNoteOff(msg) {
   if (routed) {
     sendLoopNoteOff(routed.note, event.velocity, routed.channel);
     ext.state.routedNotesByPad.delete(event.coord);
+    refreshSameOutputNoteHighlights(routed.note);
+    refreshInstrumentSameOutputNoteHighlights(routed.note);
   }
 }
 
@@ -736,6 +773,57 @@ function flashPlayablePitchClass(pc) {
   }
 }
 
+function refreshSameOutputNoteHighlights(noteNumber) {
+  const hasActive = Array.from(ext.state.routedNotesByPad.values()).some((entry) => entry.note === noteNumber);
+
+  for (const [coord, meta] of Object.entries(ext.layout.cellMeta || {})) {
+    if (meta?.zone !== "play" || meta.noteNumber !== noteNumber) {
+      continue;
+    }
+    const el = document.getElementById(`cell-${coord}`);
+    if (!el) {
+      continue;
+    }
+
+    const isActiveCoord = Array.from(ext.state.routedNotesByPad.entries()).some(
+      ([routedCoord, routed]) => routedCoord === coord && routed.note === noteNumber,
+    );
+
+    el.classList.toggle("cell-same-note", hasActive && !isActiveCoord);
+  }
+}
+
+function refreshInstrumentSameOutputNoteHighlights(noteNumber) {
+  if (!ext.midi.instrumentOutput) {
+    return;
+  }
+
+  const activeCoordsForNote = new Set(
+    Array.from(ext.state.routedNotesByPad.entries())
+      .filter(([_coord, routed]) => routed.note === noteNumber)
+      .map(([coord]) => coord),
+  );
+  const hasActive = activeCoordsForNote.size > 0;
+
+  for (const [coord, meta] of Object.entries(ext.layout.cellMeta || {})) {
+    if (meta?.zone !== "play" || meta.noteNumber !== noteNumber) {
+      continue;
+    }
+
+    const [xStr, yStr] = coord.split("-");
+    const x = Number.parseInt(xStr, 10);
+    const y = Number.parseInt(yStr, 10);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      continue;
+    }
+
+    const color = hasActive && !activeCoordsForNote.has(coord)
+      ? INSTRUMENT_COLORS.sameNote
+      : getInstrumentColorForMeta(meta);
+    highlightInstrumentXY(x, y, color);
+  }
+}
+
 function refreshHeldCellClasses() {
   ext.state.heldPads.forEach((coord) => {
     const el = document.getElementById(`cell-${coord}`);
@@ -846,6 +934,24 @@ function setLoopPitchBendRangeSemitones(semitones = 2) {
   log.info(`Set loop pitch bend range to ±${value} semitones on channels 1-16.`);
 }
 
+async function resendPitchBendRangeFromConfig() {
+  const semitones = clampInt(
+    ext.config.outputPitchBendRangeSemitones,
+    1,
+    96,
+    defaultConfig.outputPitchBendRangeSemitones,
+  );
+  setLoopPitchBendRangeSemitones(semitones);
+  if (ext.midi.instrumentOutput) {
+    try {
+      await setLinnStrumentParamValue(19, semitones);
+    } catch (err) {
+      console.warn("Failed to resend LinnStrument bend range", err);
+    }
+  }
+  log.info(`Resent pitch bend range: ±${semitones} semitones.`);
+}
+
 function findCoordByRoutedNote(channel, noteNumber) {
   for (const [coord, routed] of ext.state.routedNotesByPad.entries()) {
     if (routed.channel === channel && routed.note === noteNumber) {
@@ -912,26 +1018,32 @@ function paintInstrumentLayout() {
     for (let y = 0; y < 8; y++) {
       const key = coordKey(x, y);
       const meta = ext.layout.cellMeta[key] || {};
-      let color = INSTRUMENT_COLORS.disabled;
-
-      if (meta.zone === "mod") color = INSTRUMENT_COLORS.mod;
-      if (meta.zone === "key") {
-        color = meta.selected
-          ? INSTRUMENT_COLORS.selected
-          : meta.accidental
-            ? INSTRUMENT_COLORS.keyAccidental
-            : INSTRUMENT_COLORS.keyNatural;
-      }
-      if (meta.zone === "octave") color = INSTRUMENT_COLORS.octave;
-      if (meta.zone === "mode") color = meta.selected ? INSTRUMENT_COLORS.selected : INSTRUMENT_COLORS.mode;
-      if (meta.zone === "play") {
-        color = shouldLightPlayablePad(meta) ? (meta.tonic ? INSTRUMENT_COLORS.tonic : INSTRUMENT_COLORS.play) : INSTRUMENT_COLORS.off;
-      }
-      if (meta.zone === "disabled") color = INSTRUMENT_COLORS.off;
-
-      highlightInstrumentXY(x, y, color);
+      highlightInstrumentXY(x, y, getInstrumentColorForMeta(meta));
     }
   }
+}
+
+function getInstrumentColorForMeta(meta = {}) {
+  let color = INSTRUMENT_COLORS.disabled;
+
+  if (meta.zone === "mod") color = INSTRUMENT_COLORS.mod;
+  if (meta.zone === "key") {
+    color = meta.selected
+      ? INSTRUMENT_COLORS.selected
+      : meta.accidental
+        ? INSTRUMENT_COLORS.keyAccidental
+        : INSTRUMENT_COLORS.keyNatural;
+  }
+  if (meta.zone === "octave") color = INSTRUMENT_COLORS.octave;
+  if (meta.zone === "mode") color = meta.selected ? INSTRUMENT_COLORS.selected : INSTRUMENT_COLORS.mode;
+  if (meta.zone === "play") {
+    color = shouldLightPlayablePad(meta)
+      ? (meta.tonic ? INSTRUMENT_COLORS.tonic : INSTRUMENT_COLORS.play)
+      : INSTRUMENT_COLORS.off;
+  }
+  if (meta.zone === "disabled") color = INSTRUMENT_COLORS.off;
+
+  return color;
 }
 
 export function highlightInstrumentXY(x, y, color) {
@@ -1061,11 +1173,11 @@ async function configureLinnStrumentNoOverlapDetectionMode() {
     await setLinnStrumentParamValue(35, 0);  // Split Left Special = Off
     await setLinnStrumentParamValue(0, 2);   // Split Left MIDI Mode = Channel Per Row
     await setLinnStrumentParamValue(18, 1);  // Split Left Lowest Per-Row Channel = 1
-    await setLinnStrumentParamValue(19, 2);  // Split Left MIDI Bend Range = 2 semitones
+    await setLinnStrumentParamValue(19, clampInt(ext.config.outputPitchBendRangeSemitones, 1, 96, 2));  // Split Left MIDI Bend Range
     await setLinnStrumentParamValue(60, 0);  // Split Left Row Channel Order = Normal
     await setLinnStrumentParamValue(227, 0); // Global Row Offset = No overlap
     await setLinnStrumentParamValue(36, 2);  // Split Left Octave = -3
-    await setLinnStrumentParamValue(37, 13); // Split Left Transpose Pitch = +6 (yields start note 0)
+    await setLinnStrumentParamValue(37, 13); // Split Left Transpose Pitch = +6
     await setLinnStrumentParamValue(38, 13); // Split Left Transpose Lights = +6
 
     ext.state.sync = {
@@ -1145,7 +1257,7 @@ function shiftOutputOctave(deltaOctaves) {
 
   ext.config.baseRootC = nextBaseRootC;
   persistConfig(ext.config);
-  rebuildLayout({ preserveHeldState: true });
+  rebuildLayout({ preserveHeldState: true, paintInstrument: false });
   log.info(`Output octave changed: base C = ${NOTE_NAMES[nextBaseRootC % 12]}${Math.floor(nextBaseRootC / 12) - 1}`);
   logActiveState("octave");
   return true;
@@ -1156,8 +1268,14 @@ function logActiveState(trigger = "state") {
   const tonic = NOTE_NAMES[mod(ext.config.selectedKey, 12)];
   const octave = Math.floor(ext.config.baseRootC / 12) - 1;
   log.info(
-    `State (${trigger}): tonic=${tonic}, scale=${mode.name}, octave=${octave}, layoutOffset=${ext.config.layoutRowOffset}, deviceOffset=${ext.config.deviceRowOffset}`,
+    `State (${trigger}): tonic=${tonic}, scale=${mode.name}, allNotes=${ext.config.allNotesEnabled ? "on" : "off"}, octave=${octave}, layoutOffset=${getActiveLayoutRowOffset()} (scale=${ext.config.layoutRowOffsetScale}, all=${ext.config.layoutRowOffsetAllNotes}), deviceOffset=${ext.config.deviceRowOffset}`,
   );
+}
+
+function getActiveLayoutRowOffset() {
+  return ext.config.allNotesEnabled
+    ? clampInt(ext.config.layoutRowOffsetAllNotes, 1, 12, defaultConfig.layoutRowOffsetAllNotes)
+    : clampInt(ext.config.layoutRowOffsetScale, 1, 12, defaultConfig.layoutRowOffsetScale);
 }
 
 function modTouchId(channel, noteNumber, fallbackCoord = "") {
@@ -1172,18 +1290,20 @@ function shouldLightPlayablePad(meta) {
     return true;
   }
 
-  if (ext.config.selectedModeId !== "chromatic") {
+  if (!ext.config.allNotesEnabled) {
     return true;
   }
 
-  const major = MODE_BY_ID.major;
-  if (!major?.intervals?.length) {
+  return Boolean(meta.inSelectedScale);
+}
+
+function isPitchClassInMode(pc, rootPc, mode) {
+  if (!mode?.intervals?.length) {
     return true;
   }
-
-  const rootPc = mod(ext.config.selectedKey, 12);
-  const notePc = mod(meta.noteNumber, 12);
-  return major.intervals.some((interval) => mod(rootPc + interval, 12) === notePc);
+  const notePc = mod(pc, 12);
+  const tonicPc = mod(rootPc, 12);
+  return mode.intervals.some((interval) => mod(tonicPc + interval, 12) === notePc);
 }
 
 function scaleNoteAt(rootMidi, mode, degreeIndex) {

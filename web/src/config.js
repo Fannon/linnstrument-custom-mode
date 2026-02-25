@@ -10,12 +10,14 @@ export const defaultConfig = {
   deviceRowOffset: 5,
   deviceColOffset: 1,
   assumeRowChannels: true,
-  layoutRowOffset: 4,
+  layoutRowOffsetScale: 4,
+  layoutRowOffsetAllNotes: 5,
   pitchSlideSemitonesPerPad: 1,
   outputPitchBendRangeSemitones: 2,
   baseRootC: 36,
   selectedKey: 0,
   selectedModeId: "major",
+  allNotesEnabled: false,
 };
 
 export function initConfig() {
@@ -25,9 +27,19 @@ export function initConfig() {
   }
 
   try {
+    const parsed = JSON.parse(raw);
+    const legacyLayoutRowOffset = Number.parseInt(parsed?.layoutRowOffset, 10);
     return {
       ...defaultConfig,
-      ...JSON.parse(raw),
+      ...parsed,
+      layoutRowOffsetScale: Number.isFinite(Number(parsed?.layoutRowOffsetScale))
+        ? parsed.layoutRowOffsetScale
+        : Number.isFinite(legacyLayoutRowOffset)
+          ? legacyLayoutRowOffset
+          : defaultConfig.layoutRowOffsetScale,
+      layoutRowOffsetAllNotes: Number.isFinite(Number(parsed?.layoutRowOffsetAllNotes))
+        ? parsed.layoutRowOffsetAllNotes
+        : defaultConfig.layoutRowOffsetAllNotes,
     };
   } catch (err) {
     console.warn("Ignoring invalid stored config", err);
