@@ -1309,6 +1309,11 @@ function getInstrumentColorForMeta(meta = {}, coord = null) {
     return INSTRUMENT_COLORS.held;
   }
 
+  const tonicPc = mod(ext.config.selectedKey ?? defaultConfig.selectedKey ?? 0, 12);
+  const isTonicPlayablePad = meta.zone === "play"
+    && Number.isFinite(meta.noteNumber)
+    && mod(meta.noteNumber, 12) === tonicPc;
+
   let color = INSTRUMENT_COLORS.disabled;
 
   if (meta.zone === "overlay-trigger") color = INSTRUMENT_COLORS.overlayTrigger;
@@ -1323,9 +1328,13 @@ function getInstrumentColorForMeta(meta = {}, coord = null) {
   if (meta.zone === "octave") color = INSTRUMENT_COLORS.octave;
   if (meta.zone === "mode") color = meta.selected ? INSTRUMENT_COLORS.selected : INSTRUMENT_COLORS.mode;
   if (meta.zone === "play") {
-    color = shouldLightPlayablePad(meta)
-      ? (meta.tonic ? INSTRUMENT_COLORS.tonic : INSTRUMENT_COLORS.play)
-      : INSTRUMENT_COLORS.off;
+    if (!ext.config.allNotesEnabled) {
+      color = isTonicPlayablePad ? INSTRUMENT_COLORS.tonic : INSTRUMENT_COLORS.off;
+    } else {
+      color = shouldLightPlayablePad(meta)
+        ? (isTonicPlayablePad ? INSTRUMENT_COLORS.tonic : INSTRUMENT_COLORS.play)
+        : INSTRUMENT_COLORS.off;
+    }
   }
   if (meta.zone === "disabled") color = INSTRUMENT_COLORS.off;
 
