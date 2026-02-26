@@ -51,56 +51,33 @@ export function drawGrid(grid, cellMeta = {}) {
     return;
   }
 
+  const visualRows = grid[0]?.length ?? 0;
+  const visualColumns = grid.length;
+  const padSize = Math.max(26, Math.floor(surface.offsetWidth / Math.max(visualColumns, 1)) - 6);
+
+  if (canPatchSurfaceGrid(surface, visualColumns, visualRows)) {
+    patchSurfaceGrid(surface, grid, cellMeta, padSize);
+    return;
+  }
+
   surface.innerHTML = "";
-
-  const cols = grid[0].length;
-  const rows = grid.length;
-  const padSize = Math.max(26, Math.floor(surface.offsetWidth / rows) - 6);
-
-  for (let y = cols - 1; y >= 0; y--) {
+  for (let y = visualRows - 1; y >= 0; y--) {
     const rowEl = document.createElement("div");
     rowEl.className = "surface-row";
     rowEl.style.height = `${padSize + 6}px`;
     surface.appendChild(rowEl);
 
-    for (let x = 0; x < rows; x++) {
-      const noteNumber = grid[x][y];
-      const meta = cellMeta[coordKey(x, y)] || {};
-      const label = meta.label || midiNoteLabel(noteNumber);
-      const subLabel = meta.subLabel || "";
-
+    for (let x = 0; x < visualColumns; x++) {
       const cellEl = document.createElement("button");
       cellEl.type = "button";
-      cellEl.id = `cell-${x}-${y}`;
-      cellEl.className = [
-        "cell",
-        `note-number-${noteNumber}`,
-        meta.zone ? `zone-${meta.zone}` : "",
-        meta.accidental ? "cell-accidental" : "",
-        meta.disabled ? "cell-disabled" : "",
-        meta.tonic ? "cell-tonic" : "",
-        meta.selected ? "cell-selected" : "",
-      ].filter(Boolean).join(" ");
-      cellEl.style.height = `${padSize}px`;
-      cellEl.style.width = `${padSize}px`;
-      cellEl.dataset.x = String(x);
-      cellEl.dataset.y = String(y);
-      cellEl.dataset.noteNumber = String(noteNumber);
       cellEl.tabIndex = -1;
-      cellEl.setAttribute("aria-label", `${label}${subLabel ? ` ${subLabel}` : ""}`);
-
-      const labelEl = document.createElement("span");
-      labelEl.className = `cell-label${String(label).length > 4 ? " cell-label-small" : ""}`;
-      labelEl.textContent = label;
-      cellEl.appendChild(labelEl);
-
-      if (subLabel) {
-        const subLabelEl = document.createElement("span");
-        subLabelEl.className = "cell-sub-label";
-        subLabelEl.textContent = subLabel;
-        cellEl.appendChild(subLabelEl);
-      }
-
+      applyCellPresentation(cellEl, {
+        x,
+        y,
+        noteNumber: grid[x][y],
+        meta: cellMeta[coordKey(x, y)] || {},
+        padSize,
+      });
       rowEl.appendChild(cellEl);
     }
   }
@@ -119,4 +96,107 @@ function midiNoteLabel(noteNumber) {
   const name = names[noteNumber % 12];
   const octave = Math.floor(noteNumber / 12) - 1;
   return `${name}${octave}`;
+}
+
+function canPatchSurfaceGrid(surface, visualColumns, visualRows) {
+  if (visualColumns <= 0 || visualRows <= 0) {
+    return false;
+  }
+  const rowEls = surface.querySelectorAll(".surface-row");
+  if (rowEls.length !== visualRows) {
+    return false;
+  }
+  return surface.querySelectorAll(".cell").length === visualColumns * visualRows;
+}
+
+function patchSurfaceGrid(surface, grid, cellMeta, padSize) {
+  const visualRows = grid[0]?.length ?? 0;
+  const visualColumns = grid.length;
+  const rowEls = surface.querySelectorAll(".surface-row");
+
+  for (let y = visualRows - 1; y >= 0; y--) {
+    const rowRenderIndex = visualRows - 1 - y;
+    const rowEl = rowEls[rowRenderIndex];
+    if (!rowEl) {
+      continue;
+    }
+    rowEl.style.height = `${padSize + 6}px`;
+
+    for (let x = 0; x < visualColumns; x++) {
+      const cellEl = rowEl.children[x];
+      if (!cellEl) {
+        continue;
+      }
+      applyCellPresentation(cellEl, {
+        x,
+        y,
+        noteNumber: grid[x][y],
+        meta: cellMeta[coordKey(x, y)] || {},
+        padSize,
+      });
+    }
+  }
+}
+
+function applyCellPresentation(cellEl, options) {
+  const {
+    x,
+    y,
+    noteNumber,
+    meta = {},
+    padSize,
+  } = options;
+
+  const label = meta.label || midiNoteLabel(noteNumber);
+  const subLabel = meta.subLabel || "";
+  const nextNoteClass = `note-number-${noteNumber}`;
+  const nextZoneClass = meta.zone ? `zone-${meta.zone}` : "";
+  const prevNoteClass = cellEl.dataset.noteClass;
+  const prevZoneClass = cellEl.dataset.zoneClass;
+
+  cellEl.id = `cell-${x}-${y}`;
+  cellEl.classList.add("cell");
+  if (prevNoteClass && prevNoteClass !== nextNoteClass) {
+    cellEl.classList.remove(prevNoteClass);
+  }
+  if (prevZoneClass && prevZoneClass !== nextZoneClass) {
+    cellEl.classList.remove(prevZoneClass);
+  }
+  cellEl.classList.add(nextNoteClass);
+  if (nextZoneClass) {
+    cellEl.classList.add(nextZoneClass);
+  }
+  cellEl.classList.toggle("cell-accidental", Boolean(meta.accidental));
+  cellEl.classList.toggle("cell-disabled", Boolean(meta.disabled));
+  cellEl.classList.toggle("cell-root", Boolean(meta.root));
+  cellEl.classList.toggle("cell-selected", Boolean(meta.selected));
+  cellEl.style.height = `${padSize}px`;
+  cellEl.style.width = `${padSize}px`;
+  cellEl.dataset.x = String(x);
+  cellEl.dataset.y = String(y);
+  cellEl.dataset.noteNumber = String(noteNumber);
+  cellEl.dataset.noteClass = nextNoteClass;
+  cellEl.dataset.zoneClass = nextZoneClass;
+  cellEl.setAttribute("aria-label", `${label}${subLabel ? ` ${subLabel}` : ""}`);
+
+  let labelEl = cellEl.querySelector(".cell-label");
+  if (!labelEl) {
+    labelEl = document.createElement("span");
+    labelEl.className = "cell-label";
+    cellEl.prepend(labelEl);
+  }
+  labelEl.className = `cell-label${String(label).length > 4 ? " cell-label-small" : ""}`;
+  labelEl.textContent = label;
+
+  let subLabelEl = cellEl.querySelector(".cell-sub-label");
+  if (subLabel) {
+    if (!subLabelEl) {
+      subLabelEl = document.createElement("span");
+      subLabelEl.className = "cell-sub-label";
+      cellEl.appendChild(subLabelEl);
+    }
+    subLabelEl.textContent = subLabel;
+  } else if (subLabelEl) {
+    subLabelEl.remove();
+  }
 }

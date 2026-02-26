@@ -15,6 +15,7 @@ import {
   MODES,
   NO_OVERLAP_COLUMN_PHASE,
   clampInt,
+  detectChordNameFromMidiNotes,
   parsePitchSlideSetting,
   mod,
   getPitchBend14,
@@ -50,6 +51,8 @@ const LINNSTRUMENT_INPUT_PROTOCOL_USER_FIRMWARE = "user-firmware";
 const USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_1 = 3; // 3rd control-strip button from bottom (Oct-)
 const USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_2 = 4; // 4th control-strip button from bottom (Oct+)
 const USER_FIRMWARE_CONTROL_STRIP_ROW_SPLIT = 2;    // 2nd control-strip button from bottom (Split)
+const USER_FIRMWARE_CONTROL_STRIP_ROW_EXIT = 7;     // 7th control-strip button from bottom (Exit User Firmware)
+const USER_FIRMWARE_X_MAX_14 = 4265;
 
 export const ext = {
   config: {},
@@ -58,6 +61,7 @@ export const ext = {
   layout: {
     cellMeta: {},
     padMap: {},
+    gridMappingSignature: "",
   },
   midi: {
     instrumentInput: null,
@@ -76,6 +80,10 @@ export const ext = {
       perRowLowestChannel: null,
       rowChannelOrderReversed: false,
     },
+    userFirmwareXByPad: new Map(),
+    userFirmwarePitchAnchorByChannel: new Map(),
+    detectedChordName: "",
+    instrumentPaintingEnabled: true,
   },
   fn: {},
 };
@@ -226,6 +234,7 @@ function populateStateSelectors() {
 
 function populateUiFromConfig() {
   setValue("presetSelect", ext.config.presetId);
+  setValue("linnStrumentInputProtocol", ext.config.linnStrumentInputProtocol ?? defaultConfig.linnStrumentInputProtocol);
   setValue("stateTonicSelect", mod(ext.config.selectedKey ?? defaultConfig.selectedKey, 12));
   setValue("stateScaleSelect", ext.config.selectedModeId ?? defaultConfig.selectedModeId);
   setValue("layoutRowOffsetScale", ext.config.layoutRowOffsetScale);
@@ -238,6 +247,10 @@ function populateUiFromConfig() {
 
 function readConfigFromUi() {
   const presetId = getValue("presetSelect") || defaultConfig.presetId;
+  const linnStrumentInputProtocolRaw = getValue("linnStrumentInputProtocol") || ext.config.linnStrumentInputProtocol || defaultConfig.linnStrumentInputProtocol;
+  const linnStrumentInputProtocol = linnStrumentInputProtocolRaw === LINNSTRUMENT_INPUT_PROTOCOL_STANDARD
+    ? LINNSTRUMENT_INPUT_PROTOCOL_STANDARD
+    : LINNSTRUMENT_INPUT_PROTOCOL_USER_FIRMWARE;
   const selectedKey = clampInt(
     getValue("stateTonicSelect"),
     0,
@@ -274,6 +287,7 @@ function readConfigFromUi() {
   ext.config = {
     ...ext.config,
     presetId,
+    linnStrumentInputProtocol,
     selectedKey,
     selectedModeId,
     layoutRowOffsetScale,
@@ -291,6 +305,7 @@ function readConfigFromUi() {
   setValue("layoutRowOffsetAllNotes", ext.config.layoutRowOffsetAllNotes);
   setValue("pitchSlideSemitonesPerPad", ext.config.pitchSlideSemitonesPerPad);
   setValue("outputPitchBendRangeSemitones", ext.config.outputPitchBendRangeSemitones);
+  setValue("linnStrumentInputProtocol", ext.config.linnStrumentInputProtocol ?? defaultConfig.linnStrumentInputProtocol);
   setValue("deviceStartNote", ext.config.deviceStartNote);
   setValue("deviceRowOffset", ext.config.deviceRowOffset);
   setValue("stateTonicSelect", mod(ext.config.selectedKey ?? defaultConfig.selectedKey, 12));
@@ -445,6 +460,7 @@ function detachInstrumentInputListeners() {
 function attachInstrumentInputListeners(input) {
   input.addListener("noteon", (msg) => handleNoteOn(msg));
   input.addListener("noteoff", (msg) => handleNoteOff(msg));
+  input.addListener("controlchange", (msg) => handleControlChange(msg));
   input.addListener("keyaftertouch", (msg) => handlePolyPressure(msg));
   input.addListener("channelaftertouch", (msg) => handleChannelAftertouch(msg));
   input.addListener("pitchbend", (msg) => handlePitchBend(msg));
@@ -455,8 +471,12 @@ function rebuildLayout(options = {}) {
   if (!preserveHeldState) {
     clearHeldState();
   }
-  ext.grid = generateGrid(ext.config.deviceStartNote, ext.config.deviceRowOffset, ext.config.deviceColOffset);
-  ext.gridDict = getGridDict(ext.grid, ext.config.deviceStartNote);
+  const gridMappingSignature = getGridMappingSignature();
+  if (ext.layout.gridMappingSignature !== gridMappingSignature || !ext.grid) {
+    ext.grid = generateGrid(ext.config.deviceStartNote, ext.config.deviceRowOffset, ext.config.deviceColOffset);
+    ext.gridDict = getGridDict(ext.grid, ext.config.deviceStartNote);
+    ext.layout.gridMappingSignature = gridMappingSignature;
+  }
 
   const layout = buildLayoutDefinition();
   ext.layout.cellMeta = layout.cellMeta;
@@ -634,6 +654,10 @@ function handleNoteOn(msg) {
       shiftOutputOctave(-1);
       return;
     }
+    if (controlStripCommand.action === "exit-user-firmware") {
+      void exitUserFirmwareModeFromControlStrip();
+      return;
+    }
   }
 
   const overlayEvent = normalizeOverlayTriggerEvent(msg, { debug: true, phase: "noteon" });
@@ -689,8 +713,20 @@ function handleNoteOn(msg) {
       break;
     }
     case "play-note": {
-      ext.state.routedNotesByPad.set(event.coord, { note: pad.outNote, channel: event.channel });
+      const channelHadPlayableNote = Array.from(ext.state.routedNotesByPad.values()).some(
+        (entry) => entry.channel === event.channel,
+      );
+      ext.state.routedNotesByPad.set(event.coord, {
+        note: pad.outNote,
+        channel: event.channel,
+        inputColumn: event.noteNumber,
+      });
+      if (isLinnStrumentUserFirmwareModeEnabled() && !channelHadPlayableNote) {
+        ext.state.userFirmwarePitchAnchorByChannel.set(event.channel, { inputColumn: event.noteNumber });
+        sendLoopPitchBend14(8192, event.channel);
+      }
       sendLoopNoteOn(pad.outNote, event.velocity, event.channel);
+      refreshDetectedChord();
       refreshSameOutputNoteHighlights(pad.outNote);
       refreshInstrumentSameOutputNoteHighlights(pad.outNote);
       break;
@@ -728,6 +764,23 @@ function handleNoteOff(msg) {
   if (routed) {
     sendLoopNoteOff(routed.note, event.velocity, routed.channel);
     ext.state.routedNotesByPad.delete(event.coord);
+    refreshDetectedChord();
+    if (isLinnStrumentUserFirmwareModeEnabled()) {
+      if (Number.isFinite(routed.inputColumn)) {
+        ext.state.userFirmwareXByPad.delete(noteKey(routed.channel, routed.inputColumn));
+      }
+      const anchor = ext.state.userFirmwarePitchAnchorByChannel.get(routed.channel);
+      const remainingOnChannel = Array.from(ext.state.routedNotesByPad.values()).find((entry) => entry.channel === routed.channel);
+      if (!remainingOnChannel) {
+        ext.state.userFirmwarePitchAnchorByChannel.delete(routed.channel);
+        sendLoopPitchBend14(8192, routed.channel);
+      } else if (
+        (!anchor || anchor.inputColumn === routed.inputColumn)
+        && Number.isFinite(remainingOnChannel.inputColumn)
+      ) {
+        ext.state.userFirmwarePitchAnchorByChannel.set(routed.channel, { inputColumn: remainingOnChannel.inputColumn });
+      }
+    }
     refreshSameOutputNoteHighlights(routed.note);
     refreshInstrumentSameOutputNoteHighlights(routed.note);
     return;
@@ -791,6 +844,37 @@ function handleChannelAftertouch(msg) {
   }
 }
 
+function handleControlChange(msg) {
+  if (!isLinnStrumentUserFirmwareModeEnabled()) {
+    return;
+  }
+
+  const event = extractRawControlChangeEvent(msg);
+  if (!event) {
+    return;
+  }
+
+  if (event.controller === 119) {
+    return;
+  }
+
+  const xMessage = decodeUserFirmwareXControlChange(event);
+  if (!xMessage) {
+    return;
+  }
+
+  const key = noteKey(event.channel, xMessage.column);
+  const cached = ext.state.userFirmwareXByPad.get(key) || { msb: 0, lsb: 0 };
+  if (xMessage.part === "msb") {
+    cached.msb = xMessage.value7;
+  } else {
+    cached.lsb = xMessage.value7;
+  }
+  ext.state.userFirmwareXByPad.set(key, cached);
+
+  maybeForwardUserFirmwarePitchBendFromX(event.channel, xMessage.column, ((cached.msb & 0x7f) << 7) | (cached.lsb & 0x7f));
+}
+
 function handlePitchBend(msg) {
   const channel = getChannel(msg);
   const value14 = getPitchBend14(msg);
@@ -799,6 +883,90 @@ function handlePitchBend(msg) {
   if (shouldForwardPitchBendOnChannel(channel)) {
     sendLoopPitchBend14(scaled14, channel);
   }
+}
+
+function extractRawControlChangeEvent(msg) {
+  const controller = msg?.controller?.number ?? msg?.dataBytes?.[0];
+  if (!Number.isFinite(controller)) {
+    return null;
+  }
+
+  const rawValue = msg?.rawValue ?? msg?.value ?? msg?.dataBytes?.[1];
+  const value7 = typeof rawValue === "number" && rawValue >= 0 && rawValue <= 1
+    ? clampInt(Math.round(rawValue * 127), 0, 127, 0)
+    : clampInt(rawValue, 0, 127, 0);
+
+  return {
+    controller,
+    channel: getChannel(msg),
+    value7,
+  };
+}
+
+function decodeUserFirmwareXControlChange(event) {
+  if (!event || !Number.isFinite(event.controller)) {
+    return null;
+  }
+  if (event.controller >= 0 && event.controller <= 25) {
+    return { part: "msb", column: event.controller, value7: event.value7 };
+  }
+  if (event.controller >= 32 && event.controller <= 57) {
+    return { part: "lsb", column: event.controller - 32, value7: event.value7 };
+  }
+  return null;
+}
+
+function maybeForwardUserFirmwarePitchBendFromX(channel, inputColumn, x14) {
+  if (!Number.isFinite(channel) || !Number.isFinite(inputColumn) || !Number.isFinite(x14)) {
+    return;
+  }
+  if (!shouldForwardPitchBendOnChannel(channel)) {
+    return;
+  }
+  if (!isUserFirmwarePlayableInputColumnHeldOnChannel(channel, inputColumn)) {
+    return;
+  }
+
+  const anchor = ext.state.userFirmwarePitchAnchorByChannel.get(channel);
+  if (!anchor || !Number.isFinite(anchor.inputColumn)) {
+    return;
+  }
+
+  const bendRangeSemitones = clampInt(
+    ext.config.outputPitchBendRangeSemitones,
+    1,
+    96,
+    defaultConfig.outputPitchBendRangeSemitones,
+  );
+  const semitonesPerPad = Number(ext.config.pitchSlideSemitonesPerPad) || 1;
+  const hardwareColumns = (ext.config.linnStrumentSize / 8) + 1; // +1 control-strip column in user firmware mode
+  const padWidthX = USER_FIRMWARE_X_MAX_14 / Math.max(hardwareColumns, 1);
+  const anchorCenterX = ((anchor.inputColumn + 0.5) * USER_FIRMWARE_X_MAX_14) / Math.max(hardwareColumns, 1);
+  const deltaPads = (x14 - anchorCenterX) / Math.max(padWidthX, 1);
+  const deltaSemitones = deltaPads * semitonesPerPad;
+  const bend14 = clampInt(
+    Math.round(8192 + (deltaSemitones / bendRangeSemitones) * 8192),
+    0,
+    16383,
+    8192,
+  );
+  sendLoopPitchBend14(bend14, channel);
+}
+
+function isUserFirmwarePlayableInputColumnHeldOnChannel(channel, inputColumn) {
+  if (!isLinnStrumentUserFirmwareModeEnabled()) {
+    return false;
+  }
+  if (!Number.isFinite(inputColumn) || inputColumn <= 0) {
+    return false;
+  }
+
+  for (const routed of ext.state.routedNotesByPad.values()) {
+    if (routed.channel === channel && routed.inputColumn === inputColumn) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function normalizeTouchEvent(msg) {
@@ -930,6 +1098,9 @@ function resolveUserFirmwareControlStripCommand(noteNumber, channel) {
   }
   if (channel === USER_FIRMWARE_CONTROL_STRIP_ROW_SPLIT) {
     return "overlay";
+  }
+  if (channel === USER_FIRMWARE_CONTROL_STRIP_ROW_EXIT) {
+    return "exit-user-firmware";
   }
   return null;
 }
@@ -1247,9 +1418,16 @@ function allNotesOff() {
   }
   ext.state.activeLoopNotes.clear();
   ext.state.routedNotesByPad.clear();
+  ext.state.userFirmwarePitchAnchorByChannel.clear();
+  ext.state.userFirmwareXByPad.clear();
+  ext.state.detectedChordName = "";
+  updateChordStatusUi();
 }
 
 function clearHeldState() {
+  if (!hasTransientPerformanceState()) {
+    return;
+  }
   if (ext.state.routedNotesByPad.size > 0 || ext.state.activeLoopNotes.size > 0) {
     allNotesOff();
   }
@@ -1259,6 +1437,29 @@ function clearHeldState() {
   ext.state.modChannelsByPad.clear();
   ext.state.routedNotesByPad.clear();
   ext.state.activeLoopNotes.clear();
+  ext.state.userFirmwarePitchAnchorByChannel.clear();
+  ext.state.userFirmwareXByPad.clear();
+  ext.state.detectedChordName = "";
+  updateChordStatusUi();
+}
+
+function hasTransientPerformanceState() {
+  return ext.state.heldPads.size > 0
+    || ext.state.modPressuresByPad.size > 0
+    || ext.state.modChannelsByPad.size > 0
+    || ext.state.routedNotesByPad.size > 0
+    || ext.state.activeLoopNotes.size > 0
+    || ext.state.userFirmwarePitchAnchorByChannel.size > 0
+    || ext.state.userFirmwareXByPad.size > 0;
+}
+
+function getGridMappingSignature() {
+  return [
+    ext.config.linnStrumentSize,
+    ext.config.deviceStartNote,
+    ext.config.deviceRowOffset,
+    ext.config.deviceColOffset,
+  ].join("|");
 }
 
 function updateStatusUi() {
@@ -1280,6 +1481,7 @@ function updateStatusUi() {
     modeAllBtn.classList.toggle("btn-outline-secondary", !allActive);
   }
   updateRoutingStatus();
+  updateChordStatusUi();
 }
 
 function updateRoutingStatus() {
@@ -1287,6 +1489,17 @@ function updateRoutingStatus() {
   const outOk = Boolean(ext.midi.loopOutput);
   const status = inOk && outOk ? "Ready" : inOk ? "No loop output" : "No LinnStrument input";
   setText("routingStatus", status);
+}
+
+function refreshDetectedChord() {
+  ext.state.detectedChordName = detectChordNameFromMidiNotes(
+    Array.from(ext.state.routedNotesByPad.values()).map((entry) => entry.note),
+  );
+  updateChordStatusUi();
+}
+
+function updateChordStatusUi() {
+  setText("chordStatus", ext.state.detectedChordName || "-");
 }
 
 function paintInstrumentLayout() {
@@ -1365,7 +1578,7 @@ export function highlightInstrumentXY(x, y, color) {
 
 function highlightInstrumentHardwareXY(x, y, color) {
   const out = ext.midi.instrumentOutput;
-  if (!out?.channels?.[1]) {
+  if (!ext.state.instrumentPaintingEnabled || !out?.channels?.[1]) {
     return;
   }
 
@@ -1381,18 +1594,26 @@ function paintInstrumentUserFirmwareControlStrip() {
   }
 
   const activeOverlay = isControlOverlayActive();
-  const controlStripColorsByRow = {
-    [USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_1 - 1]: INSTRUMENT_COLORS.octave, // Switch 1 = Oct-
-    [USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_2 - 1]: INSTRUMENT_COLORS.octave, // Switch 2 = Oct+
-    [USER_FIRMWARE_CONTROL_STRIP_ROW_SPLIT - 1]: activeOverlay
-      ? INSTRUMENT_COLORS.selected
-      : INSTRUMENT_COLORS.overlayTrigger, // Split = Overlay
-  };
-
   for (let y = 0; y < 8; y++) {
-    const color = controlStripColorsByRow[y] ?? INSTRUMENT_COLORS.off;
+    const color = getUserFirmwareControlStripColor(y, activeOverlay);
     highlightInstrumentHardwareXY(0, y, color);
   }
+}
+
+function getUserFirmwareControlStripColor(y, activeOverlay = false) {
+  if (y === USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_1 - 1) {
+    return INSTRUMENT_COLORS.octave; // Switch 1 = Oct-
+  }
+  if (y === USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_2 - 1) {
+    return INSTRUMENT_COLORS.octave; // Switch 2 = Oct+
+  }
+  if (y === USER_FIRMWARE_CONTROL_STRIP_ROW_SPLIT - 1) {
+    return activeOverlay ? INSTRUMENT_COLORS.selected : INSTRUMENT_COLORS.overlayTrigger; // Split = Overlay
+  }
+  if (y === USER_FIRMWARE_CONTROL_STRIP_ROW_EXIT - 1) {
+    return INSTRUMENT_COLORS.selected; // Switch 7 = Exit UF
+  }
+  return INSTRUMENT_COLORS.off;
 }
 
 async function syncFromLinnStrument() {
@@ -1492,14 +1713,15 @@ async function configureLinnStrumentUserFirmwareMode() {
   }
 
   try {
+    ext.state.instrumentPaintingEnabled = true;
     // User Firmware Mode gives fixed coordinates:
     // - Rows are MIDI channels 1..8 (bottom row = 1)
     // - Playable columns are note numbers 1..N (note 0 is the control-switch column)
     await setLinnStrumentParamValue(245, 1); // User Firmware Mode = On
 
     for (let channel = 1; channel <= 8; channel++) {
-      sendLinnStrumentControlChange(9, 0, channel);  // Slide mode off (X-slide translation not implemented yet)
-      sendLinnStrumentControlChange(10, 0, channel); // X data off (avoid extra traffic for now)
+      sendLinnStrumentControlChange(9, 1, channel);  // Slide mode on (emit deterministic row-slide transitions)
+      sendLinnStrumentControlChange(10, 1, channel); // X data on (14-bit MSB/LSB CC pairs)
       sendLinnStrumentControlChange(11, 0, channel); // Y data off
       sendLinnStrumentControlChange(12, 1, channel); // Z data on (poly pressure)
     }
@@ -1515,11 +1737,37 @@ async function configureLinnStrumentUserFirmwareMode() {
 
     populateUiFromConfig();
     persistConfig(ext.config);
-    log.success("Configured LinnStrument User Firmware Mode (NRPN 245=1). Enabled Z data on rows 1-8; X/Y/slide disabled for now.");
-    log.warn("User Firmware Mode input is active. Pitch-slide (X) forwarding is not implemented yet in this app.");
+    log.success("Configured LinnStrument User Firmware Mode (NRPN 245=1). Enabled X slide + X/Z data on rows 1-8 (Y disabled).");
   } catch (err) {
     console.error(err);
     log.warn(`Could not enable LinnStrument User Firmware Mode automatically: ${err?.message || err}`);
+  }
+}
+
+async function exitUserFirmwareModeFromControlStrip() {
+  if (!isLinnStrumentUserFirmwareModeEnabled()) {
+    return false;
+  }
+  if (!ext.midi.instrumentOutput) {
+    log.warn("Cannot exit User Firmware Mode from control strip: no LinnStrument output selected.");
+    return false;
+  }
+
+  try {
+    clearHeldState();
+    await restoreLinnStrumentDefaultState();
+    ext.state.instrumentPaintingEnabled = false;
+
+    ext.config.linnStrumentInputProtocol = LINNSTRUMENT_INPUT_PROTOCOL_STANDARD;
+    populateUiFromConfig();
+    rebuildLayout({ paintInstrument: false });
+
+    log.success("Exited LinnStrument User Firmware Mode from control strip (switch 7), restored defaults, and stopped app LED drawing (session only).");
+    return true;
+  } catch (err) {
+    console.error(err);
+    log.warn(`Failed to exit User Firmware Mode from control strip: ${err?.message || err}`);
+    return false;
   }
 }
 
@@ -1529,6 +1777,7 @@ async function configureLinnStrumentNoOverlapDetectionMode() {
   }
 
   try {
+    ext.state.instrumentPaintingEnabled = true;
     // Deterministic pad mapping for a 128-pad LinnStrument:
     // - Channel Per Row (rows 0-7 => channels 1-8)
     // - Global Row Offset = No Overlap (unique notes across 16x8 => row interval 16)
@@ -1591,8 +1840,11 @@ async function restoreLinnStrumentDefaultState() {
     await setLinnStrumentParamValue(37, 7);  // Split Left Transpose Pitch = 0
     await setLinnStrumentParamValue(38, 7);  // Split Left Transpose Lights = 0
 
-    // Clear custom colors on the app's 16x8 grid area.
+    // Clear custom colors on the app's 16x8 grid area even if app painting is currently suspended.
+    const prevInstrumentPaintingEnabled = ext.state.instrumentPaintingEnabled;
+    ext.state.instrumentPaintingEnabled = true;
     resetGrid(highlightInstrumentXY);
+    ext.state.instrumentPaintingEnabled = prevInstrumentPaintingEnabled;
 
     log.success("Restored LinnStrument defaults (One Channel, row offset 5, no transpose) and cleared app-applied pad colors.");
   } catch (err) {

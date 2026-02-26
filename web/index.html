@@ -79,6 +79,13 @@
 
         <h2>Device</h2>
         <p class="muted">Sync mapping from LinnStrument and resend pitch-bend range.</p>
+        <div class="field-grid">
+          <label for="linnStrumentInputProtocol">Input Protocol</label>
+          <select id="linnStrumentInputProtocol" class="form-select">
+            <option value="user-firmware">User Firmware (recommended)</option>
+            <option value="standard">Standard</option>
+          </select>
+        </div>
         <div hidden>
           <h2>Device Mapping</h2>
           <p class="muted">Used to resolve touched pad coordinates from LinnStrument note input.</p>
@@ -107,7 +114,7 @@
         <div id="visualization" aria-label="LinnStrument surface visualization"></div>
         <div class="surface-state-row" aria-label="Current layout state">
           <label class="state-chip state-chip-edit" for="stateTonicSelect">
-            <span class="state-chip-label">Tonic</span>
+            <span class="state-chip-label">Root Note</span>
             <select id="stateTonicSelect" class="form-select form-select-sm"></select>
           </label>
           <label class="state-chip state-chip-edit" for="stateScaleSelect">
@@ -125,6 +132,10 @@
             <span class="state-chip-label">Routing</span>
             <strong id="routingStatus">Not connected</strong>
           </div>
+          <div class="state-chip">
+            <span class="state-chip-label">Chord</span>
+            <strong id="chordStatus">-</strong>
+          </div>
         </div>
 
         <div class="surface-footer">
@@ -137,7 +148,7 @@
               <span class="legend-item legend-key">Key</span>
               <span class="legend-item legend-mode">Mode</span>
               <span class="legend-item legend-play">Scale Note</span>
-              <span class="legend-item legend-tonic">Tonic</span>
+              <span class="legend-item legend-root">Root</span>
             </div>
           </div>
           <!-- <small class="muted">Prototype assumptions: 128-pad LinnStrument plus left config column (preserved), row-channel input (channels 1-8), default device mapping `start=30`, `rowOffset=5` unless synced.</small> -->
