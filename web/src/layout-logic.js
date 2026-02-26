@@ -106,7 +106,8 @@ export function buildLayoutDefinition(config, defaults = {}, uiState = {}) {
         meta.label = NOTE_NAMES[pc];
         meta.subLabel = `o${octave}`;
         meta.disabled = false;
-        meta.tonic = !Boolean(config?.allNotesEnabled) && pc === rootPc;
+        meta.root = !Boolean(config?.allNotesEnabled) && pc === rootPc;
+        meta.tonic = meta.root;
         meta.inSelectedScale = isPitchClassInMode(pc, rootPc, mode);
         meta.noteNumber = mappedNote;
         pad = { role: "play-note", outNote: mappedNote };

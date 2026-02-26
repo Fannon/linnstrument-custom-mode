@@ -95,6 +95,114 @@ export function scalePitchBend14(value14, factor = 1) {
   return clampInt(Math.round(center + delta * numericFactor), 0, 16383, center);
 }
 
+const CHORD_PATTERNS = [
+  { required: [0, 2, 4, 11], optional: [7], suffix: "maj9", rank: 132 },
+  { required: [0, 2, 4, 10], optional: [7], suffix: "9", rank: 131 },
+  { required: [0, 2, 3, 10], optional: [7], suffix: "m9", rank: 130 },
+  { required: [0, 4, 11], optional: [7], suffix: "maj7", rank: 120 },
+  { required: [0, 4, 10], optional: [7], suffix: "7", rank: 119 },
+  { required: [0, 3, 10], optional: [7], suffix: "m7", rank: 118 },
+  { required: [0, 3, 6, 10], optional: [], suffix: "m7b5", rank: 117 },
+  { required: [0, 3, 6, 9], optional: [], suffix: "dim7", rank: 116 },
+  { required: [0, 3, 11], optional: [7], suffix: "m(maj7)", rank: 115 },
+  { required: [0, 4, 8, 11], optional: [], suffix: "maj7#5", rank: 114 },
+  { required: [0, 4, 8, 10], optional: [], suffix: "7#5", rank: 113 },
+  { required: [0, 5, 10], optional: [7], suffix: "7sus4", rank: 112 },
+  { required: [0, 2, 10], optional: [7], suffix: "7sus2", rank: 111 },
+  { required: [0, 2, 4, 9], optional: [7], suffix: "6/9", rank: 108 },
+  { required: [0, 2, 3, 9], optional: [7], suffix: "m6/9", rank: 107 },
+  { required: [0, 4, 9], optional: [7], suffix: "6", rank: 104 },
+  { required: [0, 3, 9], optional: [7], suffix: "m6", rank: 103 },
+  { required: [0, 2, 4, 7], optional: [], suffix: "add9", rank: 96 },
+  { required: [0, 2, 3, 7], optional: [], suffix: "m(add9)", rank: 95 },
+  { required: [0, 4, 7], optional: [], suffix: "", rank: 80 },
+  { required: [0, 3, 7], optional: [], suffix: "m", rank: 79 },
+  { required: [0, 3, 6], optional: [], suffix: "dim", rank: 78 },
+  { required: [0, 4, 8], optional: [], suffix: "aug", rank: 77 },
+  { required: [0, 2, 7], optional: [], suffix: "sus2", rank: 76 },
+  { required: [0, 5, 7], optional: [], suffix: "sus4", rank: 75 },
+  { required: [0, 7], optional: [], suffix: "5", rank: 40 },
+];
+
+function scoreChordPatternMatch(intervals, pattern, bassIsRoot, { allowExtras = false } = {}) {
+  const intervalSet = new Set(intervals);
+
+  for (const requiredInterval of pattern.required) {
+    if (!intervalSet.has(requiredInterval)) {
+      return null;
+    }
+  }
+
+  const allowedIntervals = new Set([...pattern.required, ...(pattern.optional || [])]);
+  const extraIntervals = intervals.filter((interval) => !allowedIntervals.has(interval));
+  if (!allowExtras && extraIntervals.length > 0) {
+    return null;
+  }
+  if (allowExtras && extraIntervals.length > 2) {
+    return null;
+  }
+
+  const optionalPresentCount = (pattern.optional || []).filter((interval) => intervalSet.has(interval)).length;
+  const exactBonus = extraIntervals.length === 0 ? 6 : 0;
+  const bassBonus = bassIsRoot ? 15 : 0;
+  const nonRootPenalty = bassIsRoot ? 0 : 11;
+  const extraPenalty = extraIntervals.length * 14;
+
+  return pattern.rank + bassBonus + optionalPresentCount + exactBonus - nonRootPenalty - extraPenalty;
+}
+
+function findBestChordMatch(uniquePcs, bassPc, { allowExtras = false } = {}) {
+  let best = null;
+
+  for (const rootPc of uniquePcs) {
+    const intervals = uniquePcs.map((pc) => mod(pc - rootPc, 12)).sort((a, b) => a - b);
+
+    for (const pattern of CHORD_PATTERNS) {
+      const score = scoreChordPatternMatch(intervals, pattern, bassPc === rootPc, { allowExtras });
+      if (score === null) {
+        continue;
+      }
+
+      if (!best || score > best.score) {
+        best = { rootPc, bassPc, pattern, score };
+      }
+    }
+  }
+
+  return best;
+}
+
+export function detectChordNameFromMidiNotes(noteNumbers) {
+  const midiNotes = Array.from(noteNumbers || [])
+    .map((note) => Number(note))
+    .filter((note) => Number.isFinite(note) && note >= 0 && note <= 127)
+    .sort((a, b) => a - b);
+
+  if (midiNotes.length < 2) {
+    return "";
+  }
+
+  const uniquePcs = Array.from(new Set(midiNotes.map((note) => mod(note, 12)))).sort((a, b) => a - b);
+  const bassPc = mod(midiNotes[0], 12);
+
+  const best =
+    findBestChordMatch(uniquePcs, bassPc, { allowExtras: false }) ||
+    findBestChordMatch(uniquePcs, bassPc, { allowExtras: true });
+
+  if (!best) {
+    return "";
+  }
+
+  const rootLabel = NOTE_NAMES[best.rootPc] || String(best.rootPc);
+  const bassLabel = NOTE_NAMES[best.bassPc] || String(best.bassPc);
+  const chordLabel = `${rootLabel}${best.pattern.suffix}`;
+
+  if (best.bassPc !== best.rootPc && uniquePcs.length >= 3) {
+    return `${chordLabel}/${bassLabel}`;
+  }
+  return chordLabel;
+}
+
 export function rowIndexFromChannel(channel, sync = {}) {
   if (!Number.isFinite(channel)) {
     return null;

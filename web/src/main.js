@@ -38,6 +38,7 @@ const INSTRUMENT_COLORS = {
   disabled: 7,
   play: 8,
   tonic: 9,
+  root: 9,
   held: 1,
   selected: 1,
   sameNote: 1,
@@ -722,10 +723,6 @@ function handleNoteOff(msg) {
     handleControlOverlayTriggerRelease(event);
     return;
   }
-  if (pad.role === "mod") {
-    clearModPressure(event.coord, event.channel, event.noteNumber);
-    return;
-  }
 
   const routed = ext.state.routedNotesByPad.get(event.coord);
   if (routed) {
@@ -733,6 +730,12 @@ function handleNoteOff(msg) {
     ext.state.routedNotesByPad.delete(event.coord);
     refreshSameOutputNoteHighlights(routed.note);
     refreshInstrumentSameOutputNoteHighlights(routed.note);
+    return;
+  }
+
+  if (pad.role === "mod") {
+    clearModPressure(event.coord, event.channel, event.noteNumber);
+    return;
   }
 }
 

@@ -3,6 +3,7 @@ import {
   MODES,
   NO_OVERLAP_COLUMN_PHASE,
   clampInt,
+  detectChordNameFromMidiNotes,
   getActiveLayoutRowOffset,
   getPitchBend14,
   isPitchClassInMode,
@@ -121,5 +122,31 @@ describe("core-logic", () => {
     expect(shouldLightPlayablePad({ zone: "play", noteNumber: 60, inSelectedScale: true }, true)).toBe(true);
     expect(shouldLightPlayablePad({ zone: "play", noteNumber: 61, inSelectedScale: false }, true)).toBe(false);
     expect(shouldLightPlayablePad({ zone: "play", noteNumber: 61, inSelectedScale: false }, false)).toBe(true);
+  });
+
+  test("detectChordNameFromMidiNotes detects common triads and sevenths", () => {
+    expect(detectChordNameFromMidiNotes([60, 64, 67])).toBe("C");
+    expect(detectChordNameFromMidiNotes([60, 63, 67])).toBe("Cm");
+    expect(detectChordNameFromMidiNotes([60, 64, 67, 71])).toBe("Cmaj7");
+    expect(detectChordNameFromMidiNotes([60, 64, 67, 70])).toBe("C7");
+    expect(detectChordNameFromMidiNotes([60, 63, 67, 70])).toBe("Cm7");
+  });
+
+  test("detectChordNameFromMidiNotes detects common extensions and omissions", () => {
+    expect(detectChordNameFromMidiNotes([60, 62, 64, 67])).toBe("Cadd9");
+    expect(detectChordNameFromMidiNotes([60, 64, 67, 69])).toBe("C6");
+    expect(detectChordNameFromMidiNotes([60, 64, 70, 74])).toBe("C9");
+    expect(detectChordNameFromMidiNotes([60, 64, 71])).toBe("Cmaj7");
+  });
+
+  test("detectChordNameFromMidiNotes keeps a base chord when an extra color tone is present", () => {
+    expect(detectChordNameFromMidiNotes([60, 64, 67, 70, 73])).toBe("C7");
+    expect(detectChordNameFromMidiNotes([64, 67, 70, 72, 74])).toBe("C9/E");
+  });
+
+  test("detectChordNameFromMidiNotes reports inversions with slash bass", () => {
+    expect(detectChordNameFromMidiNotes([64, 67, 72])).toBe("C/E");
+    expect(detectChordNameFromMidiNotes([67, 72])).toBe("C5");
+    expect(detectChordNameFromMidiNotes([60])).toBe("");
   });
 });
