@@ -62,8 +62,8 @@ export function buildLayoutDefinition(config, defaults = {}, uiState = {}) {
           meta.accidental = isAccidentalPc(x);
           meta.selected = mod12(config?.selectedKey ?? 0) === x;
           pad = { role: "key-select", keyPc: x };
-        } else if (x === 12) {
-          meta.zone = "mode";
+        } else if (x === 13) {
+          meta.zone = "mpe";
           meta.label = "MPE";
           meta.subLabel = "route";
           meta.disabled = false;

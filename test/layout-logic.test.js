@@ -51,12 +51,12 @@ describe("layout-logic buildLayoutDefinition", () => {
     expect(cellMeta["1-1"].accidental).toBe(true);
     expect(cellMeta["1-1"].selected).toBe(true);
 
-    expect(cellMeta["12-1"].disabled).toBe(false);
-    expect(cellMeta["12-1"].zone).toBe("mode");
-    expect(cellMeta["12-1"].label).toBe("MPE");
-    expect(padMap["12-1"].role).toBe("toggle-mpe");
-    expect(cellMeta["13-1"].disabled).toBe(true);
-    expect(padMap["13-1"].role).toBe("disabled");
+    expect(cellMeta["12-1"].disabled).toBe(true);
+    expect(padMap["12-1"].role).toBe("disabled");
+    expect(cellMeta["13-1"].disabled).toBe(false);
+    expect(cellMeta["13-1"].zone).toBe("mpe");
+    expect(cellMeta["13-1"].label).toBe("MPE");
+    expect(padMap["13-1"].role).toBe("toggle-mpe");
 
     expect(cellMeta["14-1"].zone).toBe("octave");
     expect(cellMeta["14-1"].label).toBe("Oct-");
@@ -166,9 +166,9 @@ describe("layout-logic buildLayoutDefinition", () => {
       { mpeEnabled: false },
       { controlOverlayActive: true },
     );
-    expect(cellMeta["12-1"].zone).toBe("mode");
-    expect(cellMeta["12-1"].label).toBe("MPE");
-    expect(cellMeta["12-1"].selected).toBe(false);
-    expect(padMap["12-1"].role).toBe("toggle-mpe");
+    expect(cellMeta["13-1"].zone).toBe("mpe");
+    expect(cellMeta["13-1"].label).toBe("MPE");
+    expect(cellMeta["13-1"].selected).toBe(false);
+    expect(padMap["13-1"].role).toBe("toggle-mpe");
   });
 });

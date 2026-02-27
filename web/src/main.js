@@ -61,6 +61,8 @@ const INSTRUMENT_COLORS = {
   keyNatural: 4,
   keyAccidental: 5,
   mode: 3,
+  mpeEnabled: 3,
+  mpeDisabled: 1,
   octave: 11,
   disabled: 7,
   play: 8,
@@ -710,7 +712,7 @@ function setMpeModeEnabled(enabled, options = {}) {
   clearHeldState();
   ext.config.mpeEnabled = nextValue;
   persistConfig(ext.config);
-  rebuildLayout({ preserveHeldState: false, paintInstrument: false });
+  rebuildLayout({ preserveHeldState: false, paintInstrument: true });
   if (flashCoord) {
     flashSelection(flashCoord);
   }
@@ -1604,7 +1606,6 @@ function allNotesOff() {
   for (let channel = 1; channel <= 16; channel++) {
     sendLoopControlChange(123, 0, channel);
     sendLoopControlChange(120, 0, channel);
-    sendLoopChannelAftertouch(0, channel);
     sendLoopControlChange(1, 0, channel);
     sendLoopPitchBend14(8192, channel);
   }
@@ -1741,6 +1742,7 @@ function getInstrumentColorForMeta(meta = {}, coord = null) {
   }
   if (meta.zone === "octave") color = INSTRUMENT_COLORS.octave;
   if (meta.zone === "mode") color = meta.selected ? INSTRUMENT_COLORS.selected : INSTRUMENT_COLORS.mode;
+  if (meta.zone === "mpe") color = meta.selected ? INSTRUMENT_COLORS.mpeEnabled : INSTRUMENT_COLORS.mpeDisabled;
   if (meta.zone === "play") {
     if (!ext.config.allNotesEnabled) {
       color = isTonicPlayablePad ? INSTRUMENT_COLORS.tonic : INSTRUMENT_COLORS.off;
