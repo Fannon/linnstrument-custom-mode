@@ -42,6 +42,11 @@ import {
   normalizeUserFirmwareAxesByRow,
 } from "./user-firmware-settings.js";
 import {
+  decodeUserFirmwareYControlChange,
+  normalizeUserFirmwareTimbreCc,
+  normalizeUserFirmwareTimbreEnabled,
+} from "./user-firmware-y.js";
+import {
   getRoutedInputChannel,
   isMpeModeEnabled as isMpeModeEnabledCore,
   listOutputChannelsForInputChannel,
@@ -273,6 +278,17 @@ function populateUiFromConfig() {
     "userFirmwareSlideMode",
     normalizeUserFirmwareSlideMode(ext.config.userFirmwareSlideMode ?? defaultConfig.userFirmwareSlideMode),
   );
+  setChecked(
+    "userFirmwareTimbreEnabled",
+    normalizeUserFirmwareTimbreEnabled(
+      ext.config.userFirmwareTimbreEnabled ?? defaultConfig.userFirmwareTimbreEnabled,
+      defaultConfig.userFirmwareTimbreEnabled,
+    ),
+  );
+  setValue(
+    "userFirmwareTimbreCc",
+    normalizeUserFirmwareTimbreCc(ext.config.userFirmwareTimbreCc, defaultConfig.userFirmwareTimbreCc),
+  );
   setValue("outputPitchBendRangeSemitones", ext.config.outputPitchBendRangeSemitones);
   setValue(
     "userFirmwareDecimationMs",
@@ -313,6 +329,14 @@ function readConfigFromUi() {
     getValue("userFirmwareSlideMode"),
     defaultConfig.userFirmwareSlideMode,
   );
+  const userFirmwareTimbreEnabled = normalizeUserFirmwareTimbreEnabled(
+    getChecked("userFirmwareTimbreEnabled"),
+    ext.config.userFirmwareTimbreEnabled ?? defaultConfig.userFirmwareTimbreEnabled,
+  );
+  const userFirmwareTimbreCc = normalizeUserFirmwareTimbreCc(
+    getValue("userFirmwareTimbreCc"),
+    defaultConfig.userFirmwareTimbreCc,
+  );
   const outputPitchBendRangeSemitones = clampInt(
     getValue("outputPitchBendRangeSemitones"),
     1,
@@ -342,6 +366,8 @@ function readConfigFromUi() {
     layoutRowOffsetAllNotes,
     pitchSlideSemitonesPerPad,
     userFirmwareSlideMode,
+    userFirmwareTimbreEnabled,
+    userFirmwareTimbreCc,
     outputPitchBendRangeSemitones,
     assumeDefaultUserFirmwareSwitchMapping,
     userFirmwareDecimationMs,
@@ -357,6 +383,8 @@ function readConfigFromUi() {
   setValue("layoutRowOffsetAllNotes", ext.config.layoutRowOffsetAllNotes);
   setValue("pitchSlideSemitonesPerPad", ext.config.pitchSlideSemitonesPerPad);
   setValue("userFirmwareSlideMode", normalizeUserFirmwareSlideMode(ext.config.userFirmwareSlideMode));
+  setChecked("userFirmwareTimbreEnabled", normalizeUserFirmwareTimbreEnabled(ext.config.userFirmwareTimbreEnabled));
+  setValue("userFirmwareTimbreCc", normalizeUserFirmwareTimbreCc(ext.config.userFirmwareTimbreCc));
   setValue("outputPitchBendRangeSemitones", ext.config.outputPitchBendRangeSemitones);
   setChecked("assumeDefaultUserFirmwareSwitchMapping", ext.config.assumeDefaultUserFirmwareSwitchMapping);
   setValue("userFirmwareDecimationMs", ext.config.userFirmwareDecimationMs);
@@ -989,6 +1017,12 @@ function handleControlChange(msg) {
     return;
   }
 
+  const yMessage = decodeUserFirmwareYControlChange(event);
+  if (yMessage) {
+    maybeForwardUserFirmwareTimbreFromY(event.channel, yMessage.column, yMessage.value7);
+    return;
+  }
+
   const xMessage = decodeUserFirmwareXControlChange(event);
   if (!xMessage) {
     return;
@@ -1130,6 +1164,29 @@ function maybeForwardUserFirmwarePitchBendFromX(channel, inputColumn, x14) {
     8192,
   );
   sendLoopPitchBend14(bend14, routedEntry.routed.channel);
+}
+
+function maybeForwardUserFirmwareTimbreFromY(channel, inputColumn, value7) {
+  if (!Number.isFinite(channel) || !Number.isFinite(inputColumn)) {
+    return;
+  }
+  if (!normalizeUserFirmwareTimbreEnabled(ext.config.userFirmwareTimbreEnabled, defaultConfig.userFirmwareTimbreEnabled)) {
+    return;
+  }
+  if (!isUserFirmwarePlayableInputColumnHeldOnChannel(channel, inputColumn)) {
+    return;
+  }
+
+  const routedEntry = findRoutedEntryByInputPosition(channel, inputColumn);
+  if (!routedEntry) {
+    return;
+  }
+
+  const timbreCc = normalizeUserFirmwareTimbreCc(
+    ext.config.userFirmwareTimbreCc,
+    defaultConfig.userFirmwareTimbreCc,
+  );
+  sendLoopControlChange(timbreCc, clampInt(value7, 0, 127, 0), routedEntry.routed.channel);
 }
 
 function isUserFirmwarePlayableInputColumnHeldOnChannel(channel, inputColumn) {
