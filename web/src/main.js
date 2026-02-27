@@ -59,6 +59,7 @@ import {
   clearNrpnDecoderState,
   consumeUserFirmwareModeNotification,
 } from "./linnstrument-nrpn.js";
+import { readLinnStrumentUserFirmwareModeEnabled } from "./linnstrument-sync.js";
 const MODE_BY_ID = Object.fromEntries(MODES.map((mode) => [mode.id, mode]));
 
 const INSTRUMENT_COLORS = {
@@ -491,6 +492,7 @@ async function connectMidiFromConfig() {
   }
 
   await configureLinnStrumentInputMode();
+  await verifyLinnStrumentUserFirmwareModeState();
   updateRoutingStatus();
 }
 
@@ -1846,6 +1848,28 @@ async function configureLinnStrumentInputMode() {
   await configureLinnStrumentUserFirmwareMode();
 }
 
+async function verifyLinnStrumentUserFirmwareModeState() {
+  if (!ext.midi.instrumentInput || !ext.midi.instrumentOutput) {
+    return;
+  }
+
+  try {
+    const userFirmwareEnabled = await readLinnStrumentUserFirmwareModeEnabled({
+      input: ext.midi.instrumentInput,
+      output: ext.midi.instrumentOutput,
+      timeoutMs: 450,
+      withTimeout,
+      nrpnEncoder: nrpn,
+    });
+    applyLinnStrumentUserFirmwareModeNotification(userFirmwareEnabled);
+    log.info(
+      `Verified LinnStrument mode via NRPN 245 query: User Firmware ${userFirmwareEnabled ? "enabled" : "disabled"}.`,
+    );
+  } catch (err) {
+    log.warn(`Could not verify LinnStrument User Firmware mode state: ${err?.message || err}`);
+  }
+}
+
 async function configureLinnStrumentUserFirmwareMode() {
   if (!ext.midi.instrumentOutput) {
     return;
@@ -1916,6 +1940,19 @@ function nrpn(value) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function withTimeout(ms, promise) {
+  const timeoutMs = Math.max(0, Number(ms) || 0);
+  let timer = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Timed out after ${timeoutMs}ms`)), timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  });
 }
 
 function shiftOutputOctave(deltaOctaves) {

@@ -1,3 +1,5 @@
+import { LINNSTRUMENT_USER_FIRMWARE_MODE_PARAM } from "./linnstrument-nrpn.js";
+
 export async function readLinnStrumentParamValue({
   inputChannel,
   output,
@@ -49,6 +51,25 @@ export async function readLinnStrumentParamValue({
     settled = true;
     unsubscribe();
   });
+}
+
+export async function readLinnStrumentUserFirmwareModeEnabled({
+  input,
+  output,
+  timeoutMs = 350,
+  withTimeout,
+  nrpnEncoder,
+} = {}) {
+  const inputChannel = input?.channels?.[9];
+  const value = await readLinnStrumentParamValue({
+    inputChannel,
+    output,
+    paramNumber: LINNSTRUMENT_USER_FIRMWARE_MODE_PARAM,
+    timeoutMs,
+    withTimeout,
+    nrpnEncoder,
+  });
+  return Number(value) > 0;
 }
 
 export function addChannelListener(channel, eventName, handler, options = {}) {

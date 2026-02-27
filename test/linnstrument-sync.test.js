@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { addChannelListener, readLinnStrumentParamValue } from "../web/src/linnstrument-sync.js";
+import {
+  addChannelListener,
+  readLinnStrumentParamValue,
+  readLinnStrumentUserFirmwareModeEnabled,
+} from "../web/src/linnstrument-sync.js";
 
 function createFakeInputChannel() {
   const listeners = new Map();
@@ -125,5 +129,30 @@ describe("linnstrument-sync", () => {
     })).rejects.toThrow("send failed");
 
     expect(inputChannel.count("nrpn")).toBe(0);
+  });
+
+  test("readLinnStrumentUserFirmwareModeEnabled queries NRPN 245 on channel 9", async () => {
+    const inputChannel = createFakeInputChannel();
+    const input = { channels: { 9: inputChannel } };
+    const output = {
+      sent: [],
+      sendNrpnValue(param, value, options) {
+        this.sent.push({ param, value, options });
+      },
+    };
+
+    const pending = readLinnStrumentUserFirmwareModeEnabled({
+      input,
+      output,
+      timeoutMs: 50,
+      withTimeout: identityTimeout,
+      nrpnEncoder: (value) => [value >> 7, value & 0x7f],
+    });
+    inputChannel.emit("nrpn", { message: { dataBytes: [38, 1] } });
+
+    await expect(pending).resolves.toBe(true);
+    expect(output.sent.length).toBe(1);
+    expect(output.sent[0].value).toEqual([1, 117]); // 245
+    expect(output.sent[0].options).toEqual({ channels: 1 });
   });
 });
