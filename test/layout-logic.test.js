@@ -16,22 +16,31 @@ function baseConfig(overrides = {}) {
   };
 }
 
-describe("layout-logic buildLayoutDefinition", () => {
-  test("creates mod row on y=0 across all 16 pads", () => {
-    const { cellMeta, padMap } = buildLayoutDefinition(baseConfig(), defaultConfig);
+function buildWithOverlay(configOverrides = {}, uiState = {}) {
+  return buildLayoutDefinition(baseConfig(configOverrides), defaultConfig, uiState);
+}
 
-    for (let x = 0; x < 16; x++) {
+describe("layout-logic buildLayoutDefinition", () => {
+  test("creates overlay trigger on bottom-left pad and mod row on remaining y=0 pads", () => {
+    const { cellMeta, padMap } = buildWithOverlay({}, { controlOverlayActive: false });
+
+    expect(cellMeta["0-0"].zone).toBe("overlay-trigger");
+    expect(cellMeta["0-0"].label).toBe("Ctl");
+    expect(cellMeta["0-0"].disabled).toBe(false);
+    expect(padMap["0-0"].role).toBe("control-overlay-trigger");
+
+    for (let x = 1; x < 16; x++) {
       expect(cellMeta[`${x}-0`].zone).toBe("mod");
       expect(cellMeta[`${x}-0`].label).toBe("MW");
       expect(cellMeta[`${x}-0`].disabled).toBe(false);
       expect(padMap[`${x}-0`].role).toBe("mod");
     }
-    expect(cellMeta["0-0"].subLabel).toBe("CC1");
-    expect(cellMeta["1-0"].subLabel).toBe("");
+    expect(cellMeta["1-0"].subLabel).toBe("CC1");
+    expect(cellMeta["2-0"].subLabel).toBe("");
   });
 
-  test("creates tonic row with octave controls and disabled gaps", () => {
-    const { cellMeta, padMap } = buildLayoutDefinition(baseConfig({ selectedKey: 1 }), defaultConfig);
+  test("creates tonic row with octave controls and disabled gaps when control overlay is active", () => {
+    const { cellMeta, padMap } = buildWithOverlay({ selectedKey: 1 }, { controlOverlayActive: true });
 
     expect(cellMeta["0-1"].zone).toBe("key");
     expect(cellMeta["0-1"].label).toBe("C");
@@ -57,8 +66,11 @@ describe("layout-logic buildLayoutDefinition", () => {
     expect(padMap["15-1"].role).toBe("octave-up");
   });
 
-  test("creates mode row plus All-notes toggle on last pad", () => {
-    const { cellMeta, padMap } = buildLayoutDefinition(baseConfig({ selectedModeId: "dorian", allNotesEnabled: true }), defaultConfig);
+  test("creates mode row plus All-notes toggle on last pad when control overlay is active", () => {
+    const { cellMeta, padMap } = buildWithOverlay(
+      { selectedModeId: "dorian", allNotesEnabled: true },
+      { controlOverlayActive: true },
+    );
 
     const dorianIndex = MODES.findIndex((mode) => mode.id === "dorian");
     expect(dorianIndex).toBeGreaterThanOrEqual(0);
@@ -77,41 +89,79 @@ describe("layout-logic buildLayoutDefinition", () => {
     }
   });
 
-  test("playable rows use scale-only mapping and mark tonic/in-scale", () => {
-    const { cellMeta, padMap } = buildLayoutDefinition(baseConfig({
+  test("overlay-off layout uses rows above mod row as playable surface", () => {
+    const { cellMeta, padMap } = buildWithOverlay({
       selectedKey: 0,
       selectedModeId: "major",
       allNotesEnabled: false,
       baseRootC: 36,
       layoutRowOffsetScale: 4,
-    }), defaultConfig);
+    }, { controlOverlayActive: false });
+
+    expect(padMap["0-1"].role).toBe("play-note");
+    expect(padMap["0-1"].outNote).toBe(36); // C2 now starts on y=1
+    expect(cellMeta["0-1"].zone).toBe("play");
+    expect(cellMeta["0-1"].tonic).toBe(true);
+
+    expect(padMap["0-2"].role).toBe("play-note");
+    expect(padMap["0-2"].outNote).toBe(43); // next row starts at degree offset 4 (C major -> G2)
+  });
+
+  test("overlay-on playable rows keep stable scale mapping and mark tonic/in-scale", () => {
+    const overlayOff = buildWithOverlay({
+      selectedKey: 0,
+      selectedModeId: "major",
+      allNotesEnabled: false,
+      baseRootC: 36,
+      layoutRowOffsetScale: 4,
+    }, { controlOverlayActive: false });
+    const { cellMeta, padMap } = buildWithOverlay({
+      selectedKey: 0,
+      selectedModeId: "major",
+      allNotesEnabled: false,
+      baseRootC: 36,
+      layoutRowOffsetScale: 4,
+    }, { controlOverlayActive: true });
 
     expect(padMap["0-3"].role).toBe("play-note");
-    expect(padMap["0-3"].outNote).toBe(36); // C2
-    expect(cellMeta["0-3"].label).toBe("C");
-    expect(cellMeta["0-3"].tonic).toBe(true);
+    expect(padMap["0-3"].outNote).toBe(overlayOff.padMap["0-3"].outNote);
+    expect(padMap["0-3"].outNote).toBe(50); // D3 (row mapping stays put while overlay is visible)
+    expect(cellMeta["0-3"].label).toBe("D");
+    expect(cellMeta["0-3"].tonic).toBe(false);
     expect(cellMeta["0-3"].inSelectedScale).toBe(true);
 
-    expect(padMap["1-3"].outNote).toBe(38); // D2
-    expect(cellMeta["1-3"].label).toBe("D");
+    expect(padMap["1-3"].outNote).toBe(overlayOff.padMap["1-3"].outNote);
+    expect(padMap["1-3"].outNote).toBe(52); // E3
+    expect(cellMeta["1-3"].label).toBe("E");
     expect(cellMeta["1-3"].tonic).toBe(false);
   });
 
-  test("all-notes mode uses all-notes row offset and still tracks inSelectedScale", () => {
-    const { cellMeta, padMap } = buildLayoutDefinition(baseConfig({
+  test("overlay-on all-notes mode keeps row mapping stable and still tracks inSelectedScale", () => {
+    const overlayOff = buildWithOverlay({
       selectedKey: 0,
       selectedModeId: "major",
       allNotesEnabled: true,
       baseRootC: 36,
       layoutRowOffsetScale: 4,
       layoutRowOffsetAllNotes: 5,
-    }), defaultConfig);
+    }, { controlOverlayActive: false });
+    const { cellMeta, padMap } = buildWithOverlay({
+      selectedKey: 0,
+      selectedModeId: "major",
+      allNotesEnabled: true,
+      baseRootC: 36,
+      layoutRowOffsetScale: 4,
+      layoutRowOffsetAllNotes: 5,
+    }, { controlOverlayActive: true });
 
-    expect(padMap["0-3"].outNote).toBe(36);
-    expect(padMap["1-3"].outNote).toBe(37); // chromatic step in all-notes mode
-    expect(cellMeta["1-3"].inSelectedScale).toBe(false);
+    expect(padMap["0-3"].outNote).toBe(overlayOff.padMap["0-3"].outNote);
+    expect(padMap["0-3"].outNote).toBe(46);
+    expect(cellMeta["0-3"].inSelectedScale).toBe(false);
+    expect(padMap["1-3"].outNote).toBe(overlayOff.padMap["1-3"].outNote);
+    expect(padMap["1-3"].outNote).toBe(47); // chromatic step in all-notes mode
 
-    expect(padMap["0-4"].outNote).toBe(41); // row offset uses all-notes offset (5)
-    expect(cellMeta["0-4"].label).toBe("F");
+    expect(padMap["0-4"].outNote).toBe(overlayOff.padMap["0-4"].outNote);
+    expect(padMap["0-4"].outNote).toBe(51); // row offset still uses all-notes offset (5)
+    expect(cellMeta["0-4"].label).toBe("D#");
   });
 });
