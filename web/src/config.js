@@ -1,4 +1,7 @@
+import { MODES } from "./core-logic.js";
+
 export const STORAGE_KEY = "linnstrumentCustomModeConfig";
+const MODE_IDS = new Set(MODES.map((mode) => mode.id));
 
 export const defaultConfig = {
   presetId: "scale-mode-basic-v1",
@@ -47,6 +50,9 @@ export function initConfig() {
     return {
       ...defaultConfig,
       ...parsedRest,
+      selectedModeId: MODE_IDS.has(parsedRest?.selectedModeId)
+        ? parsedRest.selectedModeId
+        : defaultConfig.selectedModeId,
       layoutRowOffsetScale: Number.isFinite(Number(parsed?.layoutRowOffsetScale))
         ? parsed.layoutRowOffsetScale
         : Number.isFinite(legacyLayoutRowOffset)

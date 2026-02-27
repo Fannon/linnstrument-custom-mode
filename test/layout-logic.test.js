@@ -67,7 +67,7 @@ describe("layout-logic buildLayoutDefinition", () => {
     expect(padMap["15-1"].role).toBe("octave-up");
   });
 
-  test("creates mode row plus All-notes toggle on last pad when control overlay is active", () => {
+  test("creates mode row with gap and All-notes toggle on last pad when control overlay is active", () => {
     const { cellMeta, padMap } = buildWithOverlay(
       { selectedModeId: "dorian", allNotesEnabled: true, mpeEnabled: true },
       { controlOverlayActive: true },
@@ -79,7 +79,10 @@ describe("layout-logic buildLayoutDefinition", () => {
     expect(cellMeta[`${dorianIndex}-2`].selected).toBe(true);
     expect(padMap[`${dorianIndex}-2`]).toEqual({ role: "mode-select", modeId: "dorian" });
 
-    expect(cellMeta["15-2"].zone).toBe("mode");
+    expect(cellMeta["14-2"].disabled).toBe(true);
+    expect(padMap["14-2"].role).toBe("disabled");
+
+    expect(cellMeta["15-2"].zone).toBe("all-notes-toggle");
     expect(cellMeta["15-2"].label).toBe("All");
     expect(cellMeta["15-2"].selected).toBe(true);
     expect(padMap["15-2"].role).toBe("toggle-all-notes");

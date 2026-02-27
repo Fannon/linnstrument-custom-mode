@@ -43,6 +43,8 @@ const INSTRUMENT_COLORS = {
   keyNatural: 4,
   keyAccidental: 5,
   mode: 3,
+  allNotesOff: 9,
+  allNotesOn: 10,
   mpeEnabled: 3,
   mpeDisabled: 1,
   octave: 11,
@@ -656,6 +658,11 @@ function applySelectedKey(keyPc, options = {}) {
     flashPitchClass = true,
   } = options;
   const nextKey = mod(keyPc, 12);
+  const hadTransientState = hasTransientPerformanceState();
+  if (hadTransientState) {
+    clearHeldState();
+    log.warn("Sent All Notes Off before applying root-note selection.");
+  }
 
   if (nextKey === mod(ext.config.selectedKey ?? defaultConfig.selectedKey, 12)) {
     setValue("stateTonicSelect", nextKey);
@@ -1525,6 +1532,7 @@ function getInstrumentColorForMeta(meta = {}, coord = null) {
   }
   if (meta.zone === "octave") color = INSTRUMENT_COLORS.octave;
   if (meta.zone === "mode") color = meta.selected ? INSTRUMENT_COLORS.selected : INSTRUMENT_COLORS.mode;
+  if (meta.zone === "all-notes-toggle") color = meta.selected ? INSTRUMENT_COLORS.allNotesOn : INSTRUMENT_COLORS.allNotesOff;
   if (meta.zone === "mpe") color = meta.selected ? INSTRUMENT_COLORS.mpeEnabled : INSTRUMENT_COLORS.mpeDisabled;
   if (meta.zone === "play") {
     if (!ext.config.allNotesEnabled) {

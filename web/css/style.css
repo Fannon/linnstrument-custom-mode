@@ -14,6 +14,8 @@
   --zone-key-accidental: #dbe8ff;
   --zone-octave: #f6d8ff;
   --zone-mode: #e9f5d1;
+  --zone-all-notes: #ffd89a;
+  --zone-all-notes-on: #b7ec9f;
   --zone-mpe-enabled: #8fe88f;
   --zone-mpe-disabled: #ff9b9b;
   --zone-play: #f4efdf;
@@ -335,6 +337,8 @@ body {
 .cell.zone-key.cell-accidental { background: var(--zone-key-accidental); }
 .cell.zone-octave { background: var(--zone-octave); }
 .cell.zone-mode { background: var(--zone-mode); }
+.cell.zone-all-notes-toggle { background: var(--zone-all-notes); }
+.cell.zone-all-notes-toggle.cell-selected { background: var(--zone-all-notes-on); }
 .cell.zone-mpe { background: var(--zone-mpe-disabled); }
 .cell.zone-mpe.cell-selected {
   background: var(--zone-mpe-enabled);

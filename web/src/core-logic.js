@@ -9,7 +9,6 @@ export const MODES = [
   { id: "mixolydian", name: "Mixolydian", short: "Mix", intervals: [0, 2, 4, 5, 7, 9, 10] },
   { id: "lydian", name: "Lydian", short: "Lyd", intervals: [0, 2, 4, 6, 7, 9, 11] },
   { id: "phrygian", name: "Phrygian", short: "Phr", intervals: [0, 1, 3, 5, 7, 8, 10] },
-  { id: "locrian", name: "Locrian", short: "Loc", intervals: [0, 1, 3, 5, 6, 8, 10] },
   { id: "harm-min", name: "Harmonic Minor", short: "Hm", intervals: [0, 2, 3, 5, 7, 8, 11] },
   { id: "mel-min", name: "Melodic Minor", short: "Mm", intervals: [0, 2, 3, 5, 7, 9, 11] },
   { id: "wholetone", name: "Whole Tone", short: "WT", intervals: [0, 2, 4, 6, 8, 10] },

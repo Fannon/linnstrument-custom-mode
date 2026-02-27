@@ -234,6 +234,35 @@ test("overlay toggle exposes controls and allows root + scale selection", async 
   await expect(page.locator("#stateScaleSelect")).toHaveValue("minor");
 });
 
+test("selecting root note sends panic even when selecting current root", async ({ page }) => {
+  const analysis = await page.evaluate(() => {
+    window.__midiEvents.length = 0;
+    const input = window.__instrumentInput;
+    const base = Number(window.ext?.config?.deviceStartNote ?? 0);
+    const heldPlayNote = base + 16; // x=0,y=1 playable cell
+
+    input.emit("noteon", { note: { number: heldPlayNote }, channel: 4, rawVelocity: 100 });
+    return {
+      beforeRootSelectPlayCount: window.__midiEvents.filter((event) => event.output === "loopMIDI Port" && event.type === "playNote").length,
+    };
+  });
+  expect(analysis.beforeRootSelectPlayCount).toBeGreaterThanOrEqual(1);
+
+  await tapPad(page, "#cell-0-0");
+  await tapPad(page, "#cell-0-1"); // C root, already selected by default
+
+  const post = await page.evaluate(() => {
+    const loopEvents = window.__midiEvents.filter((event) => event.output === "loopMIDI Port");
+    return {
+      hasAllNotesOffCc: loopEvents.some((event) => event.type === "cc" && event.controller === 123),
+      hasAllSoundOffCc: loopEvents.some((event) => event.type === "cc" && event.controller === 120),
+    };
+  });
+
+  expect(post.hasAllNotesOffCc).toBe(true);
+  expect(post.hasAllSoundOffCc).toBe(true);
+});
+
 test("mpe toggle changes routing channel for clicked notes", async ({ page }) => {
   await tapPad(page, "#visualization .zone-play:not(.cell-disabled)");
   const firstPlay = await page.evaluate(() =>

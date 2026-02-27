@@ -40,6 +40,7 @@ describe("config", () => {
       linnStrumentInputProtocol: "standard",
       assumeRowChannels: false,
       layoutRowOffset: 7,
+      selectedModeId: "locrian",
       userFirmwareSlideMode: "invalid-mode",
       userFirmwareTimbreEnabled: "0",
       userFirmwareTimbreCc: 999,

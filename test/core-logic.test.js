@@ -18,7 +18,7 @@ import {
 
 describe("core-logic", () => {
   test("mode row leaves room for All-notes toggle on 16 columns", () => {
-    expect(MODES.length).toBeLessThanOrEqual(15);
+    expect(MODES.length).toBeLessThanOrEqual(14);
   });
 
   test("mod handles negative numbers", () => {

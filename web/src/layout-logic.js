@@ -83,7 +83,8 @@ export function buildLayoutDefinition(config, defaults = {}, uiState = {}) {
           pad = { role: "octave-up" };
         }
       } else if (controlOverlayActive && y === 2) {
-        if (x < MODES.length) {
+        const modeColumnLimit = Math.max(0, columns - 2);
+        if (x < MODES.length && x < modeColumnLimit) {
           const rowMode = MODES[x];
           meta.zone = "mode";
           meta.label = rowMode.short;
@@ -92,7 +93,7 @@ export function buildLayoutDefinition(config, defaults = {}, uiState = {}) {
           meta.selected = config?.selectedModeId === rowMode.id;
           pad = { role: "mode-select", modeId: rowMode.id };
         } else if (x === columns - 1) {
-          meta.zone = "mode";
+          meta.zone = "all-notes-toggle";
           meta.label = "All";
           meta.subLabel = "notes";
           meta.disabled = false;
