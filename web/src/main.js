@@ -56,6 +56,18 @@ const INSTRUMENT_COLORS = {
 };
 
 const DEBUG_CONTROL_OVERLAY = true;
+const NRPN_SPLIT_LEFT_MIDI_MODE = 0;
+const NRPN_SPLIT_LEFT_MAIN_CHANNEL = 1;
+const NRPN_SPLIT_LEFT_PER_NOTE_CHANNEL_START = 2;
+const NRPN_SPLIT_LEFT_PER_NOTE_CHANNEL_END = 17;
+const NRPN_SPLIT_LEFT_OCTAVE = 36;
+const NRPN_SPLIT_LEFT_TRANSPOSE_PITCH = 37;
+const NRPN_GLOBAL_SPLIT_ACTIVE = 200;
+const NRPN_GLOBAL_ROW_OFFSET = 227;
+const NRPN_DEVICE_USER_FIRMWARE_MODE = 245;
+const STANDARD_DEVICE_START_NOTE = 0;
+const STANDARD_SPLIT_LEFT_OCTAVE_VALUE = 3;
+const STANDARD_SPLIT_LEFT_TRANSPOSE_PITCH_VALUE = 1;
 
 export const ext = {
   config: {},
@@ -108,6 +120,8 @@ async function init() {
   refreshPortSelectors({ autoSelectInstrument: true });
 
   await connectMidiFromConfig();
+  await ensureLinnStrumentStandardLayout("startup");
+  await configureLinnStrumentMpeInputMode(isMpeModeEnabled(), "startup");
   rebuildLayout();
 
   log.success("Prototype initialized.");
@@ -136,6 +150,8 @@ function bindUi() {
     populateUiFromConfig();
     refreshPortSelectors({ autoSelectInstrument: true });
     await connectMidiFromConfig();
+    await ensureLinnStrumentStandardLayout("reset");
+    await configureLinnStrumentMpeInputMode(isMpeModeEnabled(), "reset");
     rebuildLayout({ paintInstrument: true });
     log.warn("Configuration reset to defaults.");
   });
@@ -555,9 +571,17 @@ function createSurfaceTouchEventFromCoord(coord, velocity = 100) {
   if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0) {
     return null;
   }
+  const columns = ext.config.linnStrumentSize / 8;
+  const deviceStartNote = clampInt(
+    ext.config.deviceStartNote,
+    0,
+    127,
+    defaultConfig.deviceStartNote,
+  );
+  const noteIndex = y * columns + x;
 
   return {
-    noteNumber: x,
+    noteNumber: mod(deviceStartNote + noteIndex, 128),
     channel: y + 1,
     velocity: clampInt(velocity, 0, 127, 100),
   };
@@ -717,6 +741,7 @@ function setMpeModeEnabled(enabled, options = {}) {
   clearHeldState();
   ext.config.mpeEnabled = nextValue;
   persistConfig(ext.config);
+  void configureLinnStrumentMpeInputMode(nextValue, "toggle");
   rebuildLayout({ preserveHeldState: false, paintInstrument: true });
   if (flashCoord) {
     flashSelection(flashCoord);
@@ -1046,7 +1071,7 @@ function normalizeTouchEvent(msg) {
     return null;
   }
 
-  const coord = resolvePadCoord(raw.noteNumber, raw.channel);
+  const coord = raw.coord || resolvePadCoord(raw.noteNumber, raw.channel);
   if (!coord) {
     return null;
   }
@@ -1100,14 +1125,22 @@ function extractRawTouchEvent(msg) {
     noteNumber,
     channel,
     velocity,
+    coord: typeof msg?.coord === "string" ? msg.coord : null,
   };
 }
 
 function resolvePadCoord(noteNumber, channel) {
-  return resolveNoOverlapPadCoordCore(noteNumber, channel, {
+  const deviceStartNote = clampInt(
+    ext.config.deviceStartNote,
+    0,
+    127,
+    defaultConfig.deviceStartNote,
+  );
+  const wrappedIndex = mod(noteNumber - deviceStartNote, 128);
+  return resolveNoOverlapPadCoordCore(wrappedIndex, channel, {
     columns: ext.config.linnStrumentSize / 8,
     rows: 8,
-    assumeRowChannels: true,
+    assumeRowChannels: false,
     columnPhase: 0,
     perRowLowestChannel: 1,
     rowChannelOrderReversed: false,
@@ -1550,6 +1583,62 @@ async function setLinnStrumentParamValue(paramNumber, value) {
   }
   output.sendNrpnValue(nrpn(paramNumber), nrpn(value), { channels: 1 });
   await sleep(24);
+}
+
+async function ensureLinnStrumentStandardLayout(reason = "startup") {
+  if (!ext.midi.instrumentOutput) {
+    return false;
+  }
+  try {
+    // Enforce a deterministic physical note map for pad decoding:
+    // - User Firmware OFF
+    // - Split OFF (single full-width surface)
+    // - Row Offset = No overlap
+    // - Zero split pitch transposition
+    await setLinnStrumentParamValue(NRPN_DEVICE_USER_FIRMWARE_MODE, 0);
+    await setLinnStrumentParamValue(NRPN_GLOBAL_SPLIT_ACTIVE, 0);
+    await setLinnStrumentParamValue(NRPN_GLOBAL_ROW_OFFSET, 0);
+    await setLinnStrumentParamValue(NRPN_SPLIT_LEFT_OCTAVE, STANDARD_SPLIT_LEFT_OCTAVE_VALUE);
+    await setLinnStrumentParamValue(NRPN_SPLIT_LEFT_TRANSPOSE_PITCH, STANDARD_SPLIT_LEFT_TRANSPOSE_PITCH_VALUE);
+    if (ext.config.deviceStartNote !== STANDARD_DEVICE_START_NOTE) {
+      ext.config.deviceStartNote = STANDARD_DEVICE_START_NOTE;
+      setValue("deviceStartNote", STANDARD_DEVICE_START_NOTE);
+      persistConfig(ext.config);
+    }
+    log.info(`Requested LinnStrument standard no-overlap layout (notes 0..127) on ${reason}.`);
+    return true;
+  } catch (err) {
+    log.warn(`Could not request LinnStrument standard no-overlap layout on ${reason}: ${err?.message || err}`);
+    return false;
+  }
+}
+
+async function configureLinnStrumentMpeInputMode(enabled, reason = "toggle") {
+  if (!ext.midi.instrumentOutput) {
+    return false;
+  }
+  try {
+    if (enabled) {
+      // Channel Per Note mode, main channel 1, member note channels 2..16.
+      await setLinnStrumentParamValue(NRPN_SPLIT_LEFT_MIDI_MODE, 1);
+      await setLinnStrumentParamValue(NRPN_SPLIT_LEFT_MAIN_CHANNEL, 1);
+      for (let param = NRPN_SPLIT_LEFT_PER_NOTE_CHANNEL_START; param <= NRPN_SPLIT_LEFT_PER_NOTE_CHANNEL_END; param++) {
+        const midiChannel = param - 1;
+        await setLinnStrumentParamValue(param, midiChannel >= 2 ? 1 : 0);
+      }
+      log.info(`Configured LinnStrument MPE-style input mode on ${reason} (Channel Per Note, member channels 2-16).`);
+      return true;
+    }
+
+    // One Channel mode on channel 1 for non-MPE operation.
+    await setLinnStrumentParamValue(NRPN_SPLIT_LEFT_MIDI_MODE, 0);
+    await setLinnStrumentParamValue(NRPN_SPLIT_LEFT_MAIN_CHANNEL, 1);
+    log.info(`Configured LinnStrument non-MPE input mode on ${reason} (One Channel, ch1).`);
+    return true;
+  } catch (err) {
+    log.warn(`Could not configure LinnStrument MPE input mode on ${reason}: ${err?.message || err}`);
+    return false;
+  }
 }
 
 function nrpn(value) {

@@ -70,6 +70,18 @@ describe("core-logic", () => {
     expect(resolveNoOverlapPadCoord(128, 8, options)).toBeNull();
   });
 
+  test("resolveNoOverlapPadCoord can ignore channel and derive row from note only", () => {
+    const options = {
+      columns: 16,
+      rows: 8,
+      assumeRowChannels: false,
+      columnPhase: NO_OVERLAP_COLUMN_PHASE,
+    };
+
+    expect(resolveNoOverlapPadCoord(51, 2, options)).toBe("3-3");
+    expect(resolveNoOverlapPadCoord(51, 12, options)).toBe("3-3");
+  });
+
   test("isPitchClassInMode checks membership against selected tonic", () => {
     const major = MODES.find((mode) => mode.id === "major");
     expect(isPitchClassInMode(0, 0, major)).toBe(true);  // C in C major

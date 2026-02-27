@@ -1,5 +1,19 @@
 const { test, expect } = require("@playwright/test");
 
+function decode7BitPair(value) {
+  if (!Array.isArray(value) || value.length < 2) {
+    return null;
+  }
+  return ((value[0] & 0x7f) << 7) | (value[1] & 0x7f);
+}
+
+function isNrpnRequest(event, paramNumber, valueNumber) {
+  if (!event || event.output !== "LinnStrument Output" || event.type !== "nrpn-send") {
+    return false;
+  }
+  return decode7BitPair(event.param) === paramNumber && decode7BitPair(event.value) === valueNumber;
+}
+
 async function pointerDownPad(page, selector, pointerId = 1) {
   await page.locator(selector).first().evaluate((el, pid) => {
     el.dispatchEvent(new PointerEvent("pointerdown", {
@@ -158,8 +172,39 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await expect(page.locator("#visualization .cell").first()).toBeVisible();
   await page.evaluate(() => {
+    window.__startupMidiEvents = [...window.__midiEvents];
     window.__midiEvents.length = 0;
   });
+});
+
+test("startup and reset request LinnStrument standard no-overlap layout", async ({ page }) => {
+  const startupEvents = await page.evaluate(() => window.__startupMidiEvents || []);
+  expect(startupEvents.some((event) => event.output === "LinnStrument Output" && event.type === "nrpn-send")).toBe(true);
+  expect(startupEvents.some((event) => isNrpnRequest(event, 245, 0))).toBe(true); // UF off
+  expect(startupEvents.some((event) => isNrpnRequest(event, 200, 0))).toBe(true); // split off
+  expect(startupEvents.some((event) => isNrpnRequest(event, 227, 0))).toBe(true); // no overlap
+  expect(startupEvents.some((event) => isNrpnRequest(event, 36, 3))).toBe(true); // octave for note 0 base
+  expect(startupEvents.some((event) => isNrpnRequest(event, 37, 1))).toBe(true); // transpose for note 0 base
+  expect(startupEvents.some((event) => isNrpnRequest(event, 0, 1))).toBe(true); // MIDI Mode = Channel Per Note (MPE on default)
+  expect(startupEvents.some((event) => isNrpnRequest(event, 1, 1))).toBe(true); // Main channel = 1
+
+  await page.evaluate(() => {
+    window.__midiEvents.length = 0;
+  });
+  await page.click("#resetConfig");
+
+  await expect.poll(async () => {
+    const events = await page.evaluate(() => window.__midiEvents || []);
+    return (
+      events.some((event) => isNrpnRequest(event, 245, 0))
+      && events.some((event) => isNrpnRequest(event, 200, 0))
+      && events.some((event) => isNrpnRequest(event, 227, 0))
+      && events.some((event) => isNrpnRequest(event, 36, 3))
+      && events.some((event) => isNrpnRequest(event, 37, 1))
+      && events.some((event) => isNrpnRequest(event, 0, 1))
+      && events.some((event) => isNrpnRequest(event, 1, 1))
+    );
+  }).toBe(true);
 });
 
 test("grid click sends note on and note off to loop output", async ({ page }) => {
@@ -211,18 +256,26 @@ test("mpe toggle changes routing channel for clicked notes", async ({ page }) =>
   );
   expect(nextPlay).toBeTruthy();
   expect(nextPlay.channel).toBe(1);
+
+  const nrpnEvents = await page.evaluate(() =>
+    window.__midiEvents.filter((event) => event.output === "LinnStrument Output" && event.type === "nrpn-send")
+  );
+  expect(nrpnEvents.some((event) => isNrpnRequest(event, 0, 0))).toBe(true); // MIDI Mode = One Channel
+  expect(nrpnEvents.some((event) => isNrpnRequest(event, 1, 1))).toBe(true); // Main channel = 1
 });
 
 test("incoming standard MIDI routes note, pressure, bend, and timbre in MPE", async ({ page }) => {
   const analysis = await page.evaluate(() => {
     window.__midiEvents.length = 0;
     const input = window.__instrumentInput;
+    const base = Number(window.ext?.config?.deviceStartNote ?? 30);
+    const note = base + 3 + (3 * 16);
 
-    input.emit("noteon", { note: { number: 3 }, channel: 4, rawVelocity: 100 });
-    input.emit("keyaftertouch", { note: { number: 3 }, channel: 4, rawValue: 61 });
+    input.emit("noteon", { note: { number: note }, channel: 4, rawVelocity: 100 });
+    input.emit("keyaftertouch", { note: { number: note }, channel: 4, rawValue: 61 });
     input.emit("pitchbend", { channel: 4, dataBytes: [0, 96] });
     input.emit("controlchange", { controller: { number: 74 }, channel: 4, rawValue: 80 });
-    input.emit("noteoff", { note: { number: 3 }, channel: 4, rawVelocity: 0 });
+    input.emit("noteoff", { note: { number: note }, channel: 4, rawVelocity: 0 });
 
     const loopEvents = window.__midiEvents.filter((event) => event.output === "loopMIDI Port");
     const play = loopEvents.find((event) => event.type === "playNote");
@@ -249,6 +302,50 @@ test("incoming standard MIDI routes note, pressure, bend, and timbre in MPE", as
   expect(analysis.timbreChannel).toBe(analysis.play.channel);
 });
 
+test("same note number maps to same grid note even when input channel changes", async ({ page }) => {
+  const analysis = await page.evaluate(() => {
+    window.__midiEvents.length = 0;
+    const input = window.__instrumentInput;
+    const base = Number(window.ext?.config?.deviceStartNote ?? 30);
+    const note = base + 3 + (3 * 16); // cell 3-3 in no-overlap mapping
+
+    input.emit("noteon", { note: { number: note }, channel: 3, rawVelocity: 100 });
+    input.emit("noteoff", { note: { number: note }, channel: 3, rawVelocity: 0 });
+    input.emit("noteon", { note: { number: note }, channel: 8, rawVelocity: 100 });
+    input.emit("noteoff", { note: { number: note }, channel: 8, rawVelocity: 0 });
+
+    const playEvents = window.__midiEvents.filter((event) => event.output === "loopMIDI Port" && event.type === "playNote");
+    return {
+      count: playEvents.length,
+      notes: playEvents.map((event) => event.noteNumber),
+    };
+  });
+
+  expect(analysis.count).toBe(2);
+  expect(analysis.notes[0]).toBe(analysis.notes[1]);
+});
+
+test("wrapped top-row notes still map and route correctly", async ({ page }) => {
+  const analysis = await page.evaluate(() => {
+    window.__midiEvents.length = 0;
+    const input = window.__instrumentInput;
+    const base = Number(window.ext?.config?.deviceStartNote ?? 30);
+    const wrappedTopRowNote = (base + (7 * 16) + 3) % 128;
+
+    input.emit("noteon", { note: { number: wrappedTopRowNote }, channel: 6, rawVelocity: 96 });
+    input.emit("noteoff", { note: { number: wrappedTopRowNote }, channel: 6, rawVelocity: 0 });
+
+    const loopEvents = window.__midiEvents.filter((event) => event.output === "loopMIDI Port");
+    return {
+      playCount: loopEvents.filter((event) => event.type === "playNote").length,
+      stopCount: loopEvents.filter((event) => event.type === "stopNote").length,
+    };
+  });
+
+  expect(analysis.playCount).toBe(1);
+  expect(analysis.stopCount).toBe(1);
+});
+
 test("non-MPE mode routes notes to channel 1, keeps poly-aftertouch, and suppresses multi-note bend", async ({ page }) => {
   await tapPad(page, "#cell-0-0");
   await tapPad(page, "#cell-13-1");
@@ -257,10 +354,13 @@ test("non-MPE mode routes notes to channel 1, keeps poly-aftertouch, and suppres
   const analysis = await page.evaluate(() => {
     window.__midiEvents.length = 0;
     const input = window.__instrumentInput;
+    const base = Number(window.ext?.config?.deviceStartNote ?? 30);
+    const noteA = base + 3 + (3 * 16);
+    const noteB = noteA + 1;
 
-    input.emit("noteon", { note: { number: 3 }, channel: 4, rawVelocity: 100 });
-    input.emit("keyaftertouch", { note: { number: 3 }, channel: 4, rawValue: 71 });
-    input.emit("noteon", { note: { number: 4 }, channel: 4, rawVelocity: 100 });
+    input.emit("noteon", { note: { number: noteA }, channel: 4, rawVelocity: 100 });
+    input.emit("keyaftertouch", { note: { number: noteA }, channel: 4, rawValue: 71 });
+    input.emit("noteon", { note: { number: noteB }, channel: 4, rawVelocity: 100 });
 
     const bendCountBefore = window.__midiEvents
       .filter((event) => event.output === "loopMIDI Port" && event.type === "raw" && (event.data?.[0] & 0xf0) === 0xe0)
@@ -273,8 +373,8 @@ test("non-MPE mode routes notes to channel 1, keeps poly-aftertouch, and suppres
       .slice(bendCountBefore)
       .map((event) => ((event.data?.[2] || 0) << 7) | (event.data?.[1] || 0));
 
-    input.emit("noteoff", { note: { number: 3 }, channel: 4, rawVelocity: 0 });
-    input.emit("noteoff", { note: { number: 4 }, channel: 4, rawVelocity: 0 });
+    input.emit("noteoff", { note: { number: noteA }, channel: 4, rawVelocity: 0 });
+    input.emit("noteoff", { note: { number: noteB }, channel: 4, rawVelocity: 0 });
 
     const loopEvents = window.__midiEvents.filter((event) => event.output === "loopMIDI Port");
     return {
