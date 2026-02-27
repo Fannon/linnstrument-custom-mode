@@ -38,7 +38,6 @@ import {
   resolveUserFirmwareControlStripCommand as resolveUserFirmwareControlStripCommandCore,
 } from "./user-firmware-control-strip.js";
 import {
-  USER_FIRMWARE_ROW_COUNT,
   normalizeUserFirmwareAxesByRow,
 } from "./user-firmware-settings.js";
 import {
@@ -100,8 +99,9 @@ const USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_1 = USER_FIRMWARE_CONTROL_STRIP_DEF
 const USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_2 = USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS.switch2;
 const USER_FIRMWARE_CONTROL_STRIP_ROW_SPLIT = USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS.split;
 const USER_FIRMWARE_CONTROL_STRIP_ROW_EXIT = USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS.exit;
-const USER_FIRMWARE_X_MAX_14 = 4265;
+const USER_FIRMWARE_X_PER_PAD_14 = 4265;
 const USER_FIRMWARE_PITCH_ANCHOR_DEADBAND_X14 = 16;
+const USER_FIRMWARE_PITCH_BEND_X_DIRECTION = -1;
 
 export const ext = {
   config: {},
@@ -935,6 +935,7 @@ function handleNoteOn(msg) {
         sourceChannel: event.channel,
         inputColumn: event.noteNumber,
         pitchAnchorX14: null,
+        pitchAnchorInputColumn: null,
       });
       sendLoopPitchBend14(8192, outputChannel);
       sendLoopNoteOn(pad.outNote, event.velocity, outputChannel);
@@ -1170,6 +1171,10 @@ function handlePitchBend(msg) {
   }
 
   if (!isMpeModeEnabled()) {
+    if (shouldSuppressNonMpePitchBend()) {
+      sendLoopPitchBend14(8192, 1);
+      return;
+    }
     sendLoopPitchBend14(scaled14, 1);
     return;
   }
@@ -1237,6 +1242,10 @@ function maybeForwardUserFirmwarePitchBendFromX(channel, inputColumn, x14) {
   if (!isUserFirmwarePlayableInputColumnHeldOnChannel(channel, inputColumn)) {
     return;
   }
+  if (shouldSuppressNonMpePitchBend()) {
+    sendLoopPitchBend14(8192, 1);
+    return;
+  }
 
   const routedEntry = findRoutedEntryByInputPosition(channel, inputColumn);
   if (!routedEntry) {
@@ -1252,17 +1261,30 @@ function maybeForwardUserFirmwarePitchBendFromX(channel, inputColumn, x14) {
   const routed = routedEntry.routed;
   if (!Number.isFinite(routed.pitchAnchorX14)) {
     routed.pitchAnchorX14 = x14;
+    routed.pitchAnchorInputColumn = inputColumn;
     sendLoopPitchBend14(8192, routed.channel);
     return;
+  }
+  if (!Number.isFinite(routed.pitchAnchorInputColumn)) {
+    routed.pitchAnchorInputColumn = inputColumn;
   }
   if (Math.abs(x14 - routed.pitchAnchorX14) <= USER_FIRMWARE_PITCH_ANCHOR_DEADBAND_X14) {
     sendLoopPitchBend14(8192, routed.channel);
     return;
   }
   const semitonesPerPad = Number(ext.config.pitchSlideSemitonesPerPad) || 1;
-  const hardwareColumns = (ext.config.linnStrumentSize / 8) + 1; // +1 control-strip column in user firmware mode
-  const padWidthX = USER_FIRMWARE_X_MAX_14 / Math.max(hardwareColumns, 1);
-  const deltaPads = (x14 - routed.pitchAnchorX14) / Math.max(padWidthX, 1);
+  // In user-firmware mode, X CC 0-25 / 32-57 is per-cell 14-bit position (0..4265), not full-surface position.
+  const absoluteDeltaFromAnchorPads = USER_FIRMWARE_PITCH_BEND_X_DIRECTION
+    * ((x14 - routed.pitchAnchorX14) / Math.max(USER_FIRMWARE_X_PER_PAD_14, 1));
+  const transitionedPads = inputColumn - routed.pitchAnchorInputColumn;
+  let localDeltaPads = absoluteDeltaFromAnchorPads - transitionedPads;
+  // Keep pure same-pad motion in vibrato territory, but keep cross-pad local offsets continuous.
+  if (transitionedPads === 0) {
+    localDeltaPads = Math.max(-0.49, Math.min(0.49, localDeltaPads));
+  } else {
+    localDeltaPads = Math.max(-0.5, Math.min(0.5, localDeltaPads));
+  }
+  const deltaPads = transitionedPads + localDeltaPads;
   const deltaSemitones = deltaPads * semitonesPerPad;
   const bend14 = clampInt(
     Math.round(8192 + (deltaSemitones / bendRangeSemitones) * 8192),
@@ -1271,6 +1293,10 @@ function maybeForwardUserFirmwarePitchBendFromX(channel, inputColumn, x14) {
     8192,
   );
   sendLoopPitchBend14(maybeSmoothUserFirmwarePitchBend14(bend14, routed.channel), routed.channel);
+}
+
+function shouldSuppressNonMpePitchBend() {
+  return !isMpeModeEnabled() && ext.state.routedNotesByPad.size > 1;
 }
 
 function maybeSmoothUserFirmwarePitchBend14(bend14, channel) {
@@ -2309,28 +2335,21 @@ function getChecked(id) {
 
 function applyUserFirmwareAxesByRowToUi(value) {
   const axesByRow = normalizeUserFirmwareAxesByRow(value);
-  for (let row = 1; row <= USER_FIRMWARE_ROW_COUNT; row++) {
-    const rowConfig = axesByRow[row - 1];
-    setChecked(getUserFirmwareAxisInputId(row, "x"), rowConfig.x);
-    setChecked(getUserFirmwareAxisInputId(row, "y"), rowConfig.y);
-    setChecked(getUserFirmwareAxisInputId(row, "z"), rowConfig.z);
-  }
+  const firstRow = axesByRow[0] || { x: true, y: false, z: true };
+  setChecked("ufAxisXEnabled", firstRow.x);
+  setChecked("ufAxisYEnabled", firstRow.y);
+  setChecked("ufAxisZEnabled", firstRow.z);
 }
 
 function readUserFirmwareAxesByRowFromUi(currentValue) {
   const fallback = normalizeUserFirmwareAxesByRow(currentValue);
-  return fallback.map((rowConfig, index) => {
-    const row = index + 1;
-    return {
-      x: getChecked(getUserFirmwareAxisInputId(row, "x")) ?? rowConfig.x,
-      y: getChecked(getUserFirmwareAxisInputId(row, "y")) ?? rowConfig.y,
-      z: getChecked(getUserFirmwareAxisInputId(row, "z")) ?? rowConfig.z,
-    };
-  });
-}
-
-function getUserFirmwareAxisInputId(row, axis) {
-  return `ufRow${row}${String(axis).toUpperCase()}Enabled`;
+  const firstRow = fallback[0] || { x: true, y: false, z: true };
+  const allRows = {
+    x: getChecked("ufAxisXEnabled") ?? firstRow.x,
+    y: getChecked("ufAxisYEnabled") ?? firstRow.y,
+    z: getChecked("ufAxisZEnabled") ?? firstRow.z,
+  };
+  return fallback.map(() => ({ ...allRows }));
 }
 
 function setText(id, text) {

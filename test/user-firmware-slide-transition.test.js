@@ -32,13 +32,21 @@ describe("user-firmware slide transition", () => {
       sourceChannel: 3,
       inputColumn: 10,
       pitchAnchorX14: null,
+      pitchAnchorInputColumn: null,
     });
   });
 
   test("builds continuous transition without note retrigger events", () => {
     const result = buildUserFirmwareSlideTransitionResult({
       mode: USER_FIRMWARE_SLIDE_MODE_CONTINUOUS,
-      sourceRouted: { note: 60, channel: 7, sourceChannel: 2, inputColumn: 4, pitchAnchorX14: 1234 },
+      sourceRouted: {
+        note: 60,
+        channel: 7,
+        sourceChannel: 2,
+        inputColumn: 4,
+        pitchAnchorX14: 1234,
+        pitchAnchorInputColumn: 4,
+      },
       eventChannel: 2,
       targetInputColumn: 5,
       targetOutNote: 63,
@@ -54,6 +62,7 @@ describe("user-firmware slide transition", () => {
       sourceChannel: 2,
       inputColumn: 5,
       pitchAnchorX14: 1234,
+      pitchAnchorInputColumn: 4,
     });
   });
 });

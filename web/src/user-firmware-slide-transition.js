@@ -47,6 +47,7 @@ export function buildUserFirmwareSlideTransitionResult({
       sourceChannel: eventChannel,
       inputColumn: targetInputColumn,
       pitchAnchorX14: sendSpecEvents ? null : sourceRouted.pitchAnchorX14,
+      pitchAnchorInputColumn: sendSpecEvents ? null : sourceRouted.pitchAnchorInputColumn,
     },
   };
 }

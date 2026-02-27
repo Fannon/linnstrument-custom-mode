@@ -251,6 +251,37 @@ test("incoming user-firmware MIDI sequence routes note, pressure, bend and timbr
   expect(loopEvents.some((event) => event.type === "raw" && (event.data?.[0] & 0xf0) === 0xe0)).toBe(true); // pitch bend
 });
 
+test("non-MPE suppresses pitch bend while multiple notes are held", async ({ page }) => {
+  await tapPad(page, "#cell-0-0");
+  await tapPad(page, "#cell-13-1");
+  await expect.poll(async () => page.evaluate(() => Boolean(window.ext?.config?.mpeEnabled))).toBe(false);
+
+  const analysis = await page.evaluate(() => {
+    window.__midiEvents.length = 0;
+    const input = window.__instrumentInput;
+
+    input.emit("noteon", { note: { number: 3 }, channel: 4, rawVelocity: 100 });
+    input.emit("noteon", { note: { number: 4 }, channel: 4, rawVelocity: 100 });
+    const beforeBendCount = window.__midiEvents
+      .filter((event) => event.output === "loopMIDI Port" && event.type === "raw" && (event.data?.[0] & 0xf0) === 0xe0)
+      .length;
+
+    input.emit("pitchbend", { channel: 4, dataBytes: [0, 96] });
+
+    const bendEvents = window.__midiEvents
+      .filter((event) => event.output === "loopMIDI Port" && event.type === "raw" && (event.data?.[0] & 0xf0) === 0xe0)
+      .map((event) => ((event.data?.[2] || 0) << 7) | (event.data?.[1] || 0));
+    const afterBendEvents = bendEvents.slice(beforeBendCount);
+    return {
+      afterBendEvents,
+      hasNonCenteredAfterBend: afterBendEvents.some((value) => value !== 8192),
+    };
+  });
+
+  expect(analysis.afterBendEvents.length).toBeGreaterThanOrEqual(1);
+  expect(analysis.hasNonCenteredAfterBend).toBe(false);
+});
+
 test("continuous slide keeps one note and bends only after X moves from initial touch", async ({ page }) => {
   await page.evaluate(() => {
     window.__midiEvents.length = 0;
@@ -412,4 +443,77 @@ test("optional pitch bend smoothing limits per-update bend step", async ({ page 
   expect(analysis.bends.length).toBeGreaterThanOrEqual(3);
   expect(analysis.lastDelta).not.toBeNull();
   expect(analysis.lastDelta).toBeLessThanOrEqual(64);
+});
+
+test("same-pad X travel stays within vibrato range and does not reach adjacent note", async ({ page }) => {
+  const analysis = await page.evaluate(() => {
+    window.__midiEvents.length = 0;
+    window.ext.config.userFirmwarePitchBendSmoothingEnabled = false;
+    window.ext.config.pitchSlideSemitonesPerPad = 1;
+    window.ext.config.outputPitchBendRangeSemitones = 2;
+    const input = window.__instrumentInput;
+
+    const emitX14 = (column, channel, x14) => {
+      const clamped = Math.max(0, Math.min(16383, Math.round(x14)));
+      input.emit("controlchange", { controller: { number: column }, channel, rawValue: (clamped >> 7) & 0x7f });
+      input.emit("controlchange", { controller: { number: column + 32 }, channel, rawValue: clamped & 0x7f });
+    };
+
+    input.emit("noteon", { note: { number: 3 }, channel: 4, rawVelocity: 100 });
+    emitX14(3, 4, 1000); // anchor
+    emitX14(3, 4, 1000 + 4265); // full local sweep while still on same pad
+
+    const bendsBeforeRelease = window.__midiEvents
+      .filter((event) => event.output === "loopMIDI Port" && event.type === "raw" && (event.data?.[0] & 0xf0) === 0xe0)
+      .map((event) => ((event.data?.[2] || 0) << 7) | (event.data?.[1] || 0));
+    input.emit("noteoff", { note: { number: 3 }, channel: 4, rawVelocity: 0 });
+    return {
+      bendsBeforeRelease,
+      movedBend: bendsBeforeRelease.at(-1) ?? null,
+      movedDeltaFromCenter: bendsBeforeRelease.at(-1) == null ? null : Math.abs(bendsBeforeRelease.at(-1) - 8192),
+    };
+  });
+
+  expect(analysis.bendsBeforeRelease.length).toBeGreaterThanOrEqual(3);
+  expect(analysis.movedBend).not.toBeNull();
+  // Keep same-pad motion within about half a semitone (bend range is ±2 semitones).
+  expect(analysis.movedDeltaFromCenter).toBeLessThanOrEqual(2100);
+});
+
+test("multi-pad slide bend evolves continuously without large transition jumps", async ({ page }) => {
+  const analysis = await page.evaluate(() => {
+    window.__midiEvents.length = 0;
+    window.ext.config.userFirmwarePitchBendSmoothingEnabled = false;
+    window.ext.config.userFirmwareSlideMode = "continuous";
+    const input = window.__instrumentInput;
+
+    const emitX14 = (column, channel, x14) => {
+      const clamped = Math.max(0, Math.min(16383, Math.round(x14)));
+      input.emit("controlchange", { controller: { number: column }, channel, rawValue: (clamped >> 7) & 0x7f });
+      input.emit("controlchange", { controller: { number: column + 32 }, channel, rawValue: clamped & 0x7f });
+    };
+
+    input.emit("noteon", { note: { number: 3 }, channel: 4, rawVelocity: 100 });
+    emitX14(3, 4, 3800); // near right edge on source pad
+    input.emit("controlchange", { controller: { number: 119 }, channel: 4, rawValue: 3 });
+    input.emit("noteon", { note: { number: 4 }, channel: 4, rawVelocity: 100 });
+    input.emit("noteoff", { note: { number: 3 }, channel: 4, rawVelocity: 4 });
+    emitX14(4, 4, 400); // near left edge on target pad
+    input.emit("noteoff", { note: { number: 4 }, channel: 4, rawVelocity: 0 });
+
+    const bends = window.__midiEvents
+      .filter((event) => event.output === "loopMIDI Port" && event.type === "raw" && (event.data?.[0] & 0xf0) === 0xe0)
+      .map((event) => ((event.data?.[2] || 0) << 7) | (event.data?.[1] || 0));
+
+    const maxConsecutiveDelta = bends.reduce((maxDelta, value, index) => {
+      if (index === 0) return 0;
+      return Math.max(maxDelta, Math.abs(value - bends[index - 1]));
+    }, 0);
+
+    return { bends, maxConsecutiveDelta };
+  });
+
+  expect(analysis.bends.length).toBeGreaterThanOrEqual(4);
+  // A full-semitone step at ±2 semitone bend range is 4096. Transition should not exceed that by much.
+  expect(analysis.maxConsecutiveDelta).toBeLessThanOrEqual(4300);
 });

@@ -102,6 +102,7 @@ body {
 
 .control-panel h2,
 .surface-panel h2,
+.advanced-panel h2,
 .log-panel h2 {
   margin: 0 0 10px;
   font-size: 1rem;
@@ -164,6 +165,10 @@ body {
   padding-top: 4px;
 }
 
+.advanced-panel {
+  grid-column: 1 / span 2;
+}
+
 .log-panel {
   grid-column: 1 / span 2;
 }
@@ -206,12 +211,6 @@ body {
 .legend-root { background: var(--zone-root); }
 
 #visualization {
-  padding: 8px;
-  border-radius: 8px;
-  background:
-    linear-gradient(180deg, rgba(28, 110, 99, 0.05), rgba(199, 84, 47, 0.05)),
-    #fff;
-  border: 1px solid var(--line);
   overflow-x: auto;
 }
 
@@ -223,7 +222,7 @@ body {
 }
 
 .surface-row + .surface-row {
-  margin-top: 6px;
+  margin-top: 0px;
 }
 
 .surface-state-row {
@@ -379,6 +378,29 @@ body {
   margin-top: 6px;
 }
 
+.advanced-axis-grid {
+  display: grid;
+  grid-template-columns: max-content max-content;
+  column-gap: 10px;
+  row-gap: 6px;
+  align-items: center;
+}
+
+.advanced-options-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.advanced-option {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.7);
+  display: grid;
+  gap: 6px;
+}
+
 .log-header {
   display: flex;
   justify-content: space-between;
@@ -413,6 +435,7 @@ body {
   }
 
   .surface-panel,
+  .advanced-panel,
   .log-panel {
     grid-column: auto;
   }
