@@ -19,8 +19,8 @@ The current prototype focuses on a single preset layout that turns the LinnStrum
   - `1 pad = 0.5 semitones`
   - `1 pad = 1 semitone`
   - `1 pad = 2 semitones`
-- Sync selected device mapping assumptions from LinnStrument (NRPN-based)
 - Surface visualization in browser + optional pad coloring on the LinnStrument itself
+- Firmware-mode-only routing (LinnStrument User Firmware mode)
 
 ## MIDI Routing Model (Prototype)
 

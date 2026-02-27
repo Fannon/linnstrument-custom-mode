@@ -78,14 +78,8 @@
         </div>
 
         <h2>Device</h2>
-        <p class="muted">Sync mapping from LinnStrument and resend pitch-bend range.</p>
+        <p class="muted">User Firmware mode controls and pitch-bend range resend.</p>
         <div class="field-grid">
-          <label for="linnStrumentInputProtocol">Input Protocol</label>
-          <select id="linnStrumentInputProtocol" class="form-select">
-            <option value="user-firmware">User Firmware (recommended)</option>
-            <option value="standard">Standard</option>
-          </select>
-
           <label for="assumeDefaultUserFirmwareSwitchMapping">Assume Default UF Switch Mapping</label>
           <input id="assumeDefaultUserFirmwareSwitchMapping" class="form-check-input mt-2" type="checkbox" checked>
 
@@ -167,7 +161,6 @@
           </div>
         </div>
         <div class="button-row">
-          <button id="syncLinnState" type="button" class="btn btn-outline-secondary btn-sm">Sync From LinnStrument</button>
           <button id="resendPbRange" type="button" class="btn btn-outline-secondary btn-sm">Resend PB Range</button>
           <button id="panic" type="button" class="btn btn-outline-warning btn-sm">All Notes Off</button>
         </div>

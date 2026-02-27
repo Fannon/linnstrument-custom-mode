@@ -1,4 +1,4 @@
-import { createDefaultUserFirmwareAxesByRow } from "./user-firmware-settings.js";
+import { createDefaultUserFirmwareAxesByRow, normalizeUserFirmwareAxesByRow } from "./user-firmware-settings.js";
 
 export const STORAGE_KEY = "linnstrumentCustomModeConfig";
 
@@ -8,11 +8,9 @@ export const defaultConfig = {
   instrumentOutputPort: "",
   loopOutputPort: "",
   linnStrumentSize: 128,
-  linnStrumentInputProtocol: "user-firmware",
   deviceStartNote: 30,
   deviceRowOffset: 5,
   deviceColOffset: 1,
-  assumeRowChannels: true,
   layoutRowOffsetScale: 4,
   layoutRowOffsetAllNotes: 5,
   pitchSlideSemitonesPerPad: 1,
@@ -35,10 +33,16 @@ export function initConfig() {
 
   try {
     const parsed = JSON.parse(raw);
+    const {
+      linnStrumentInputProtocol: _legacyProtocol,
+      assumeRowChannels: _legacyAssumeRowChannels,
+      userFirmwareAxesByRow: parsedUserFirmwareAxesByRow,
+      ...parsedRest
+    } = parsed || {};
     const legacyLayoutRowOffset = Number.parseInt(parsed?.layoutRowOffset, 10);
     return {
       ...defaultConfig,
-      ...parsed,
+      ...parsedRest,
       layoutRowOffsetScale: Number.isFinite(Number(parsed?.layoutRowOffsetScale))
         ? parsed.layoutRowOffsetScale
         : Number.isFinite(legacyLayoutRowOffset)
@@ -47,6 +51,7 @@ export function initConfig() {
       layoutRowOffsetAllNotes: Number.isFinite(Number(parsed?.layoutRowOffsetAllNotes))
         ? parsed.layoutRowOffsetAllNotes
         : defaultConfig.layoutRowOffsetAllNotes,
+      userFirmwareAxesByRow: normalizeUserFirmwareAxesByRow(parsedUserFirmwareAxesByRow),
     };
   } catch (err) {
     console.warn("Ignoring invalid stored config", err);
