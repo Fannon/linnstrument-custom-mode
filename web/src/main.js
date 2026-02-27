@@ -1105,31 +1105,18 @@ function handleUserFirmwareSlideTransition(event, pad, transition) {
   }
 
   const sourceRouted = sourceEntry.routed;
-  const sourceNote = sourceRouted.note;
-  const targetNote = pad.outNote;
-  const outputChannel = sourceRouted.channel;
-
-  sendLoopNoteOn(targetNote, event.velocity, outputChannel);
-  sendLoopNoteOff(sourceNote, transition.targetColumn, outputChannel);
+  const sustainedNote = sourceRouted.note;
 
   ext.state.routedNotesByPad.delete(sourceEntry.coord);
   ext.state.routedNotesByPad.set(event.coord, {
     ...sourceRouted,
-    note: targetNote,
     sourceChannel: event.channel,
     inputColumn: event.noteNumber,
   });
 
-  ext.state.userFirmwarePitchAnchorByChannel.set(event.channel, { inputColumn: event.noteNumber });
-  sendLoopPitchBend14(8192, outputChannel);
-
   refreshDetectedChord();
-  refreshSameOutputNoteHighlights(sourceNote);
-  refreshInstrumentSameOutputNoteHighlights(sourceNote);
-  if (targetNote !== sourceNote) {
-    refreshSameOutputNoteHighlights(targetNote);
-    refreshInstrumentSameOutputNoteHighlights(targetNote);
-  }
+  refreshSameOutputNoteHighlights(sustainedNote);
+  refreshInstrumentSameOutputNoteHighlights(sustainedNote);
   return true;
 }
 
