@@ -21,7 +21,7 @@ function buildWithOverlay(configOverrides = {}, uiState = {}) {
 }
 
 describe("layout-logic buildLayoutDefinition", () => {
-  test("creates overlay trigger on bottom-left pad and mod row on remaining y=0 pads", () => {
+  test("creates overlay trigger and mod row on y=0 pads", () => {
     const { cellMeta, padMap } = buildWithOverlay({}, { controlOverlayActive: false });
 
     expect(cellMeta["0-0"].zone).toBe("overlay-trigger");
@@ -36,7 +36,7 @@ describe("layout-logic buildLayoutDefinition", () => {
       expect(padMap[`${x}-0`].role).toBe("mod");
     }
     expect(cellMeta["1-0"].subLabel).toBe("CC1");
-    expect(cellMeta["2-0"].subLabel).toBe("");
+    expect(cellMeta["2-0"].subLabel).toBe("CC1");
   });
 
   test("creates tonic row with MPE and octave controls when control overlay is active", () => {
@@ -162,6 +162,7 @@ describe("layout-logic buildLayoutDefinition", () => {
     expect(padMap["0-4"].outNote).toBe(overlayOff.padMap["0-4"].outNote);
     expect(padMap["0-4"].outNote).toBe(51); // row offset still uses all-notes offset (5)
     expect(cellMeta["0-4"].label).toBe("D#");
+    expect(cellMeta["2-3"].root).toBe(true);
   });
 
   test("MPE toggle reflects disabled state in control overlay", () => {

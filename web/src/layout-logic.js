@@ -50,7 +50,7 @@ export function buildLayoutDefinition(config, defaults = {}, uiState = {}) {
       } else if (y === 0) {
         meta.zone = "mod";
         meta.label = "MW";
-        meta.subLabel = x === 1 ? "CC1" : "";
+        meta.subLabel = "CC1";
         meta.disabled = false;
         pad = { role: "mod" };
       } else if (controlOverlayActive && y === 1) {
@@ -114,7 +114,7 @@ export function buildLayoutDefinition(config, defaults = {}, uiState = {}) {
         meta.label = NOTE_NAMES[pc];
         meta.subLabel = `o${octave}`;
         meta.disabled = false;
-        meta.root = !Boolean(config?.allNotesEnabled) && pc === rootPc;
+        meta.root = pc === rootPc;
         meta.tonic = meta.root;
         meta.inSelectedScale = isPitchClassInMode(pc, rootPc, mode);
         meta.noteNumber = mappedNote;

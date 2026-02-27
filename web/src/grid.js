@@ -149,6 +149,8 @@ function applyCellPresentation(cellEl, options) {
 
   const label = meta.label || midiNoteLabel(noteNumber);
   const subLabel = meta.subLabel || "";
+  const renderedLabel = label;
+  const renderedSubLabel = normalizePlayOctaveSubLabel(meta, subLabel);
   const nextNoteClass = `note-number-${noteNumber}`;
   const nextZoneClass = meta.zone ? `zone-${meta.zone}` : "";
   const prevNoteClass = cellEl.dataset.noteClass;
@@ -170,6 +172,8 @@ function applyCellPresentation(cellEl, options) {
   cellEl.classList.toggle("cell-disabled", Boolean(meta.disabled));
   cellEl.classList.toggle("cell-root", Boolean(meta.root));
   cellEl.classList.toggle("cell-selected", Boolean(meta.selected));
+  cellEl.classList.toggle("cell-in-scale", meta.zone === "play" && Boolean(meta.inSelectedScale));
+  cellEl.classList.toggle("cell-out-of-scale", meta.zone === "play" && meta.inSelectedScale === false);
   cellEl.style.height = `${padSize}px`;
   cellEl.style.width = `${padSize}px`;
   cellEl.dataset.x = String(x);
@@ -177,7 +181,7 @@ function applyCellPresentation(cellEl, options) {
   cellEl.dataset.noteNumber = String(noteNumber);
   cellEl.dataset.noteClass = nextNoteClass;
   cellEl.dataset.zoneClass = nextZoneClass;
-  cellEl.setAttribute("aria-label", `${label}${subLabel ? ` ${subLabel}` : ""}`);
+  cellEl.setAttribute("aria-label", `${renderedLabel}${renderedSubLabel ? ` ${renderedSubLabel}` : ""}`);
 
   let labelEl = cellEl.querySelector(".cell-label");
   if (!labelEl) {
@@ -185,18 +189,26 @@ function applyCellPresentation(cellEl, options) {
     labelEl.className = "cell-label";
     cellEl.prepend(labelEl);
   }
-  labelEl.className = `cell-label${String(label).length > 4 ? " cell-label-small" : ""}`;
+  labelEl.className = `cell-label${String(renderedLabel).length > 4 ? " cell-label-small" : ""}`;
   labelEl.textContent = label;
 
   let subLabelEl = cellEl.querySelector(".cell-sub-label");
-  if (subLabel) {
+  if (renderedSubLabel) {
     if (!subLabelEl) {
       subLabelEl = document.createElement("span");
       subLabelEl.className = "cell-sub-label";
       cellEl.appendChild(subLabelEl);
     }
-    subLabelEl.textContent = subLabel;
+    subLabelEl.textContent = renderedSubLabel;
   } else if (subLabelEl) {
     subLabelEl.remove();
   }
+}
+
+function normalizePlayOctaveSubLabel(meta, subLabel) {
+  if (meta?.zone !== "play") {
+    return subLabel || "";
+  }
+  const match = /^o(-?\d+)$/.exec(String(subLabel || "").trim());
+  return match ? match[1] : "";
 }

@@ -223,6 +223,60 @@ test("grid click sends note on and note off to loop output", async ({ page }) =>
   expect(noteOn.channel).toBe(noteOff.channel);
 });
 
+test("real mouse click on a play pad triggers note lifecycle", async ({ page }) => {
+  await page.evaluate(() => {
+    window.__midiEvents.length = 0;
+  });
+
+  await page.locator("#visualization .zone-play:not(.cell-disabled)").first().click();
+
+  const events = await page.evaluate(() =>
+    window.__midiEvents.filter((event) => event.output === "loopMIDI Port" && (event.type === "playNote" || event.type === "stopNote"))
+  );
+  expect(events.some((event) => event.type === "playNote")).toBe(true);
+  expect(events.some((event) => event.type === "stopNote")).toBe(true);
+});
+
+test("play pads render note name with octave on second line", async ({ page }) => {
+  const firstPlayPad = page.locator("#visualization .zone-play:not(.cell-disabled)").first();
+  const labelText = await firstPlayPad.locator(".cell-label").innerText();
+  expect(labelText.trim()).toMatch(/^[A-G]#?$/);
+  const octaveText = await firstPlayPad.locator(".cell-sub-label").innerText();
+  expect(octaveText.trim()).toMatch(/^-?\d+$/);
+});
+
+test("root play pads are visually distinct from non-root play pads", async ({ page }) => {
+  const colors = await page.evaluate(() => {
+    const rootPad = document.querySelector("#visualization .zone-play.cell-root");
+    const nonRootPad = document.querySelector("#visualization .zone-play:not(.cell-root)");
+    if (!rootPad || !nonRootPad) {
+      return null;
+    }
+    const rootBg = window.getComputedStyle(rootPad).backgroundColor;
+    const nonRootBg = window.getComputedStyle(nonRootPad).backgroundColor;
+    return { rootBg, nonRootBg };
+  });
+  expect(colors).toBeTruthy();
+  expect(colors.rootBg).not.toBe(colors.nonRootBg);
+});
+
+test("all-notes mode still marks root notes and greys out out-of-scale notes", async ({ page }) => {
+  await tapPad(page, "#cell-0-0");
+  await tapPad(page, "#cell-15-2");
+  await expect.poll(async () => page.evaluate(() => Boolean(window.ext?.config?.allNotesEnabled))).toBe(true);
+
+  const analysis = await page.evaluate(() => {
+    const rootCount = document.querySelectorAll("#visualization .zone-play.cell-root").length;
+    const outOfScaleCount = document.querySelectorAll("#visualization .zone-play.cell-out-of-scale").length;
+    const inScaleCount = document.querySelectorAll("#visualization .zone-play.cell-in-scale").length;
+    return { rootCount, outOfScaleCount, inScaleCount };
+  });
+
+  expect(analysis.rootCount).toBeGreaterThan(0);
+  expect(analysis.outOfScaleCount).toBeGreaterThan(0);
+  expect(analysis.inScaleCount).toBeGreaterThan(0);
+});
+
 test("overlay toggle exposes controls and allows root + scale selection", async ({ page }) => {
   await tapPad(page, "#cell-0-0");
   await expect(page.locator("#cell-0-1")).toHaveClass(/zone-key/);
