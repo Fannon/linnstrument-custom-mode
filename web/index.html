@@ -67,6 +67,12 @@
             <option value="2">1 pad = 2 semitones</option>
           </select>
 
+          <label for="userFirmwareSlideMode">User Firmware Slide Behavior</label>
+          <select id="userFirmwareSlideMode" class="form-select">
+            <option value="spec">Spec (Note On target + Note Off source)</option>
+            <option value="continuous">Continuous (sustain source note + bend)</option>
+          </select>
+
           <label for="outputPitchBendRangeSemitones">Output Pitch Bend Range</label>
           <select id="outputPitchBendRangeSemitones" class="form-select">
             <option value="1">±1 semitone</option>

@@ -40,12 +40,14 @@ describe("config", () => {
       linnStrumentInputProtocol: "standard",
       assumeRowChannels: false,
       layoutRowOffset: 7,
+      userFirmwareSlideMode: "invalid-mode",
       userFirmwareAxesByRow: [{ x: false, y: true, z: false }],
     };
     globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify(legacy));
 
     const config = initConfig();
     expect(config.layoutRowOffsetScale).toBe(7);
+    expect(config.userFirmwareSlideMode).toBe(defaultConfig.userFirmwareSlideMode);
     expect(config.userFirmwareAxesByRow[0]).toEqual({ x: false, y: true, z: false });
     expect(config.userFirmwareAxesByRow[1]).toEqual({ x: true, y: false, z: true });
     expect("linnStrumentInputProtocol" in config).toBe(false);

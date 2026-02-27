@@ -30,6 +30,10 @@ import {
   shouldIgnoreUserFirmwareSlideSourceRelease,
 } from "./user-firmware-slide.js";
 import {
+  buildUserFirmwareSlideTransitionResult,
+  normalizeUserFirmwareSlideMode,
+} from "./user-firmware-slide-transition.js";
+import {
   USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS,
   resolveUserFirmwareControlStripCommand as resolveUserFirmwareControlStripCommandCore,
 } from "./user-firmware-control-strip.js";
@@ -260,6 +264,10 @@ function populateUiFromConfig() {
   setValue("layoutRowOffsetScale", ext.config.layoutRowOffsetScale);
   setValue("layoutRowOffsetAllNotes", ext.config.layoutRowOffsetAllNotes);
   setValue("pitchSlideSemitonesPerPad", ext.config.pitchSlideSemitonesPerPad);
+  setValue(
+    "userFirmwareSlideMode",
+    normalizeUserFirmwareSlideMode(ext.config.userFirmwareSlideMode ?? defaultConfig.userFirmwareSlideMode),
+  );
   setValue("outputPitchBendRangeSemitones", ext.config.outputPitchBendRangeSemitones);
   setValue(
     "userFirmwareDecimationMs",
@@ -296,6 +304,10 @@ function readConfigFromUi() {
     getValue("pitchSlideSemitonesPerPad"),
     defaultConfig.pitchSlideSemitonesPerPad,
   );
+  const userFirmwareSlideMode = normalizeUserFirmwareSlideMode(
+    getValue("userFirmwareSlideMode"),
+    defaultConfig.userFirmwareSlideMode,
+  );
   const outputPitchBendRangeSemitones = clampInt(
     getValue("outputPitchBendRangeSemitones"),
     1,
@@ -324,6 +336,7 @@ function readConfigFromUi() {
     layoutRowOffsetScale,
     layoutRowOffsetAllNotes,
     pitchSlideSemitonesPerPad,
+    userFirmwareSlideMode,
     outputPitchBendRangeSemitones,
     assumeDefaultUserFirmwareSwitchMapping,
     userFirmwareDecimationMs,
@@ -338,6 +351,7 @@ function readConfigFromUi() {
   setValue("layoutRowOffsetScale", ext.config.layoutRowOffsetScale);
   setValue("layoutRowOffsetAllNotes", ext.config.layoutRowOffsetAllNotes);
   setValue("pitchSlideSemitonesPerPad", ext.config.pitchSlideSemitonesPerPad);
+  setValue("userFirmwareSlideMode", normalizeUserFirmwareSlideMode(ext.config.userFirmwareSlideMode));
   setValue("outputPitchBendRangeSemitones", ext.config.outputPitchBendRangeSemitones);
   setChecked("assumeDefaultUserFirmwareSwitchMapping", ext.config.assumeDefaultUserFirmwareSwitchMapping);
   setValue("userFirmwareDecimationMs", ext.config.userFirmwareDecimationMs);
@@ -1143,23 +1157,50 @@ function handleUserFirmwareSlideTransition(event, pad, transition) {
   }
 
   const sourceRouted = sourceEntry.routed;
+  const transitionResult = buildUserFirmwareSlideTransitionResult({
+    mode: ext.config.userFirmwareSlideMode,
+    sourceRouted,
+    eventChannel: event.channel,
+    targetInputColumn: event.noteNumber,
+    targetOutNote: pad.outNote,
+    velocity: event.velocity,
+  });
+  if (!transitionResult) {
+    return false;
+  }
+
   const sustainedNote = sourceRouted.note;
   const fromInputKey = noteKey(getRoutedInputChannel(sourceRouted), transition.sourceColumn);
   const toInputKey = noteKey(event.channel, event.noteNumber);
 
+  if (transitionResult.sendSpecEvents) {
+    sendLoopNoteOff(
+      transitionResult.noteOff.noteNumber,
+      transitionResult.noteOff.velocity,
+      transitionResult.noteOff.channel,
+    );
+  }
+
   ext.state.routedNotesByPad.delete(sourceEntry.coord);
-  ext.state.routedNotesByPad.set(event.coord, {
-    ...sourceRouted,
-    sourceChannel: event.channel,
-    inputColumn: event.noteNumber,
-  });
+  ext.state.routedNotesByPad.set(event.coord, transitionResult.nextRouted);
   if (isMpeModeEnabled()) {
     moveMpeVoiceInputKey(ext.state.mpeVoices, fromInputKey, toInputKey);
   }
+  if (transitionResult.sendSpecEvents) {
+    sendLoopNoteOn(
+      transitionResult.noteOn.noteNumber,
+      transitionResult.noteOn.velocity,
+      transitionResult.noteOn.channel,
+    );
+  }
 
   refreshDetectedChord();
-  refreshSameOutputNoteHighlights(sustainedNote);
-  refreshInstrumentSameOutputNoteHighlights(sustainedNote);
+  refreshSameOutputNoteHighlights(transitionResult.nextRouted.note);
+  refreshInstrumentSameOutputNoteHighlights(transitionResult.nextRouted.note);
+  if (transitionResult.nextRouted.note !== sustainedNote) {
+    refreshSameOutputNoteHighlights(sustainedNote);
+    refreshInstrumentSameOutputNoteHighlights(sustainedNote);
+  }
   return true;
 }
 

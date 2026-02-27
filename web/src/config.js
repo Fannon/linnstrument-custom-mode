@@ -1,4 +1,5 @@
 import { createDefaultUserFirmwareAxesByRow, normalizeUserFirmwareAxesByRow } from "./user-firmware-settings.js";
+import { normalizeUserFirmwareSlideMode, USER_FIRMWARE_SLIDE_MODE_SPEC } from "./user-firmware-slide-transition.js";
 
 export const STORAGE_KEY = "linnstrumentCustomModeConfig";
 
@@ -14,6 +15,7 @@ export const defaultConfig = {
   layoutRowOffsetScale: 4,
   layoutRowOffsetAllNotes: 5,
   pitchSlideSemitonesPerPad: 1,
+  userFirmwareSlideMode: USER_FIRMWARE_SLIDE_MODE_SPEC,
   outputPitchBendRangeSemitones: 2,
   mpeEnabled: true,
   assumeDefaultUserFirmwareSwitchMapping: true,
@@ -51,6 +53,7 @@ export function initConfig() {
       layoutRowOffsetAllNotes: Number.isFinite(Number(parsed?.layoutRowOffsetAllNotes))
         ? parsed.layoutRowOffsetAllNotes
         : defaultConfig.layoutRowOffsetAllNotes,
+      userFirmwareSlideMode: normalizeUserFirmwareSlideMode(parsed?.userFirmwareSlideMode),
       userFirmwareAxesByRow: normalizeUserFirmwareAxesByRow(parsedUserFirmwareAxesByRow),
     };
   } catch (err) {
