@@ -40,9 +40,15 @@ import {
 import {
   getRoutedInputChannel,
   isMpeModeEnabled as isMpeModeEnabledCore,
-  resolveOutputChannel,
   shouldForwardPitchBendForInputChannel,
 } from "./mpe-routing.js";
+import {
+  allocateMpeVoice,
+  clearMpeVoiceAllocator,
+  createMpeVoiceAllocator,
+  moveMpeVoiceInputKey,
+  releaseMpeVoice,
+} from "./mpe-voice-allocator.js";
 import {
   createNrpnDecoderState,
   clearNrpnDecoderState,
@@ -98,8 +104,8 @@ export const ext = {
     modChannelsByPad: new Map(),
     controlOverlay: createControlOverlayState(),
     userFirmwareXByPad: new Map(),
-    userFirmwarePitchAnchorByChannel: new Map(),
     userFirmwareSlide: createUserFirmwareSlideState(),
+    mpeVoices: createMpeVoiceAllocator({ minChannel: 2, maxChannel: 15 }),
     userFirmwareRuntimeActive: true,
     nrpnDecoder: createNrpnDecoderState(),
     detectedChordName: "",
@@ -769,7 +775,19 @@ function handleNoteOn(msg) {
       break;
     }
     case "play-note": {
-      const outputChannel = resolveOutputChannel(event.channel, isMpeModeEnabled());
+      const mpeEnabled = isMpeModeEnabled();
+      const sourceKey = noteKey(event.channel, event.noteNumber);
+      const { channel: outputChannel, stolenInputKey } = mpeEnabled
+        ? allocateMpeVoice(ext.state.mpeVoices, sourceKey)
+        : { channel: 1, stolenInputKey: null };
+
+      if (stolenInputKey) {
+        const stolenEntry = findRoutedEntryBySourceKey(stolenInputKey);
+        if (stolenEntry) {
+          finalizeRoutedNoteOff(stolenEntry.coord, 0);
+          setPadHeld(stolenEntry.coord, false);
+        }
+      }
 
       if (isLinnStrumentUserFirmwareModeEnabled()) {
         const transition = consumeUserFirmwareSlideTarget(ext.state.userFirmwareSlide, event.channel, event.noteNumber);
@@ -778,19 +796,13 @@ function handleNoteOn(msg) {
         }
       }
 
-      const channelHadPlayableNote = Array.from(ext.state.routedNotesByPad.values()).some(
-        (entry) => getRoutedInputChannel(entry) === event.channel,
-      );
       ext.state.routedNotesByPad.set(event.coord, {
         note: pad.outNote,
         channel: outputChannel,
         sourceChannel: event.channel,
         inputColumn: event.noteNumber,
       });
-      if (isLinnStrumentUserFirmwareModeEnabled() && !channelHadPlayableNote) {
-        ext.state.userFirmwarePitchAnchorByChannel.set(event.channel, { inputColumn: event.noteNumber });
-        sendLoopPitchBend14(8192, outputChannel);
-      }
+      sendLoopPitchBend14(8192, outputChannel);
       sendLoopNoteOn(pad.outNote, event.velocity, outputChannel);
       refreshDetectedChord();
       refreshSameOutputNoteHighlights(pad.outNote);
@@ -878,10 +890,12 @@ function handlePolyPressure(msg) {
   }
 
   if (pad.role === "play-note") {
+    const routed = ext.state.routedNotesByPad.get(event.coord);
+    const outputChannel = routed?.channel ?? 1;
     sendLoopPolyAftertouch(
       pad.outNote,
       msg.rawValue ?? 0,
-      resolveOutputChannel(event.channel, isMpeModeEnabled()),
+      outputChannel,
     );
   }
 }
@@ -986,9 +1000,36 @@ function handlePitchBend(msg) {
   const value14 = getPitchBend14(msg);
   const scaled14 = scalePitchBendForConfig(value14);
 
-  if (shouldForwardPitchBendOnChannel(channel)) {
-    sendLoopPitchBend14(scaled14, resolveOutputChannel(channel, isMpeModeEnabled()));
+  if (!shouldForwardPitchBendOnChannel(channel)) {
+    return;
   }
+
+  if (!isMpeModeEnabled()) {
+    sendLoopPitchBend14(scaled14, 1);
+    return;
+  }
+
+  const outputChannels = new Set(
+    Array.from(ext.state.routedNotesByPad.values())
+      .filter((entry) => getRoutedInputChannel(entry) === channel)
+      .map((entry) => entry.channel),
+  );
+  outputChannels.forEach((outputChannel) => {
+    sendLoopPitchBend14(scaled14, outputChannel);
+  });
+}
+
+function findRoutedEntryBySourceKey(sourceKey) {
+  if (!sourceKey) {
+    return null;
+  }
+  for (const [coord, routed] of ext.state.routedNotesByPad.entries()) {
+    const key = noteKey(getRoutedInputChannel(routed), routed.inputColumn);
+    if (key === sourceKey) {
+      return { coord, routed };
+    }
+  }
+  return null;
 }
 
 function extractRawControlChangeEvent(msg) {
@@ -1033,8 +1074,8 @@ function maybeForwardUserFirmwarePitchBendFromX(channel, inputColumn, x14) {
     return;
   }
 
-  const anchor = ext.state.userFirmwarePitchAnchorByChannel.get(channel);
-  if (!anchor || !Number.isFinite(anchor.inputColumn)) {
+  const routedEntry = findRoutedEntryByInputPosition(channel, inputColumn);
+  if (!routedEntry) {
     return;
   }
 
@@ -1047,7 +1088,7 @@ function maybeForwardUserFirmwarePitchBendFromX(channel, inputColumn, x14) {
   const semitonesPerPad = Number(ext.config.pitchSlideSemitonesPerPad) || 1;
   const hardwareColumns = (ext.config.linnStrumentSize / 8) + 1; // +1 control-strip column in user firmware mode
   const padWidthX = USER_FIRMWARE_X_MAX_14 / Math.max(hardwareColumns, 1);
-  const anchorCenterX = ((anchor.inputColumn + 0.5) * USER_FIRMWARE_X_MAX_14) / Math.max(hardwareColumns, 1);
+  const anchorCenterX = ((routedEntry.routed.inputColumn + 0.5) * USER_FIRMWARE_X_MAX_14) / Math.max(hardwareColumns, 1);
   const deltaPads = (x14 - anchorCenterX) / Math.max(padWidthX, 1);
   const deltaSemitones = deltaPads * semitonesPerPad;
   const bend14 = clampInt(
@@ -1056,7 +1097,7 @@ function maybeForwardUserFirmwarePitchBendFromX(channel, inputColumn, x14) {
     16383,
     8192,
   );
-  sendLoopPitchBend14(bend14, resolveOutputChannel(channel, isMpeModeEnabled()));
+  sendLoopPitchBend14(bend14, routedEntry.routed.channel);
 }
 
 function isUserFirmwarePlayableInputColumnHeldOnChannel(channel, inputColumn) {
@@ -1092,6 +1133,8 @@ function handleUserFirmwareSlideTransition(event, pad, transition) {
 
   const sourceRouted = sourceEntry.routed;
   const sustainedNote = sourceRouted.note;
+  const fromInputKey = noteKey(getRoutedInputChannel(sourceRouted), transition.sourceColumn);
+  const toInputKey = noteKey(event.channel, event.noteNumber);
 
   ext.state.routedNotesByPad.delete(sourceEntry.coord);
   ext.state.routedNotesByPad.set(event.coord, {
@@ -1099,6 +1142,9 @@ function handleUserFirmwareSlideTransition(event, pad, transition) {
     sourceChannel: event.channel,
     inputColumn: event.noteNumber,
   });
+  if (isMpeModeEnabled()) {
+    moveMpeVoiceInputKey(ext.state.mpeVoices, fromInputKey, toInputKey);
+  }
 
   refreshDetectedChord();
   refreshSameOutputNoteHighlights(sustainedNote);
@@ -1124,29 +1170,26 @@ function finalizeRoutedNoteOff(coord, velocity) {
     return false;
   }
 
+  const sourceChannel = getRoutedInputChannel(routed);
+  const sourceKey = noteKey(sourceChannel, routed.inputColumn);
+
   sendLoopNoteOff(routed.note, velocity, routed.channel);
   ext.state.routedNotesByPad.delete(coord);
+  if (isMpeModeEnabled()) {
+    releaseMpeVoice(ext.state.mpeVoices, sourceKey);
+  }
   refreshDetectedChord();
   if (isLinnStrumentUserFirmwareModeEnabled()) {
     if (Number.isFinite(routed.inputColumn)) {
-      const sourceChannel = getRoutedInputChannel(routed);
       if (Number.isFinite(sourceChannel)) {
         ext.state.userFirmwareXByPad.delete(noteKey(sourceChannel, routed.inputColumn));
       }
     }
-    const sourceChannel = getRoutedInputChannel(routed);
-    const anchor = ext.state.userFirmwarePitchAnchorByChannel.get(sourceChannel);
-    const remainingOnChannel = Array.from(ext.state.routedNotesByPad.values()).find(
-      (entry) => getRoutedInputChannel(entry) === sourceChannel,
+    const remainingOnOutputChannel = Array.from(ext.state.routedNotesByPad.values()).find(
+      (entry) => entry.channel === routed.channel,
     );
-    if (!remainingOnChannel) {
-      ext.state.userFirmwarePitchAnchorByChannel.delete(sourceChannel);
+    if (!remainingOnOutputChannel) {
       sendLoopPitchBend14(8192, routed.channel);
-    } else if (
-      (!anchor || anchor.inputColumn === routed.inputColumn)
-      && Number.isFinite(remainingOnChannel.inputColumn)
-    ) {
-      ext.state.userFirmwarePitchAnchorByChannel.set(sourceChannel, { inputColumn: remainingOnChannel.inputColumn });
     }
   }
   refreshSameOutputNoteHighlights(routed.note);
@@ -1517,8 +1560,8 @@ function allNotesOff() {
   }
   ext.state.activeLoopNotes.clear();
   ext.state.routedNotesByPad.clear();
-  ext.state.userFirmwarePitchAnchorByChannel.clear();
   ext.state.userFirmwareXByPad.clear();
+  clearMpeVoiceAllocator(ext.state.mpeVoices);
   clearUserFirmwareSlideState(ext.state.userFirmwareSlide);
   clearNrpnDecoderState(ext.state.nrpnDecoder);
   ext.state.detectedChordName = "";
@@ -1538,8 +1581,8 @@ function clearHeldState() {
   ext.state.modChannelsByPad.clear();
   ext.state.routedNotesByPad.clear();
   ext.state.activeLoopNotes.clear();
-  ext.state.userFirmwarePitchAnchorByChannel.clear();
   ext.state.userFirmwareXByPad.clear();
+  clearMpeVoiceAllocator(ext.state.mpeVoices);
   clearUserFirmwareSlideState(ext.state.userFirmwareSlide);
   clearNrpnDecoderState(ext.state.nrpnDecoder);
   ext.state.detectedChordName = "";
@@ -1552,7 +1595,7 @@ function hasTransientPerformanceState() {
     || ext.state.modChannelsByPad.size > 0
     || ext.state.routedNotesByPad.size > 0
     || ext.state.activeLoopNotes.size > 0
-    || ext.state.userFirmwarePitchAnchorByChannel.size > 0
+    || ext.state.mpeVoices.byInputKey.size > 0
     || ext.state.userFirmwareXByPad.size > 0
     || ext.state.userFirmwareSlide.pendingByChannel.size > 0
     || ext.state.userFirmwareSlide.activeByChannel.size > 0;
