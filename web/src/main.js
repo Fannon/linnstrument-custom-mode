@@ -38,6 +38,10 @@ import {
   resolveUserFirmwareControlStripCommand as resolveUserFirmwareControlStripCommandCore,
 } from "./user-firmware-control-strip.js";
 import {
+  USER_FIRMWARE_ROW_COUNT,
+  normalizeUserFirmwareAxesByRow,
+} from "./user-firmware-settings.js";
+import {
   createNrpnDecoderState,
   clearNrpnDecoderState,
   consumeUserFirmwareModeNotification,
@@ -263,6 +267,11 @@ function populateUiFromConfig() {
   setValue("layoutRowOffsetAllNotes", ext.config.layoutRowOffsetAllNotes);
   setValue("pitchSlideSemitonesPerPad", ext.config.pitchSlideSemitonesPerPad);
   setValue("outputPitchBendRangeSemitones", ext.config.outputPitchBendRangeSemitones);
+  setValue(
+    "userFirmwareDecimationMs",
+    clampInt(ext.config.userFirmwareDecimationMs, 0, 127, defaultConfig.userFirmwareDecimationMs),
+  );
+  applyUserFirmwareAxesByRowToUi(ext.config.userFirmwareAxesByRow);
   setValue("deviceStartNote", ext.config.deviceStartNote);
   setValue("deviceRowOffset", ext.config.deviceRowOffset);
 }
@@ -307,6 +316,13 @@ function readConfigFromUi() {
   const assumeDefaultUserFirmwareSwitchMapping = assumeDefaultUserFirmwareSwitchMappingRaw === null
     ? Boolean(ext.config.assumeDefaultUserFirmwareSwitchMapping ?? defaultConfig.assumeDefaultUserFirmwareSwitchMapping)
     : assumeDefaultUserFirmwareSwitchMappingRaw;
+  const userFirmwareDecimationMs = clampInt(
+    getValue("userFirmwareDecimationMs"),
+    0,
+    127,
+    defaultConfig.userFirmwareDecimationMs,
+  );
+  const userFirmwareAxesByRow = readUserFirmwareAxesByRowFromUi(ext.config.userFirmwareAxesByRow);
   const deviceStartNote = clampInt(getValue("deviceStartNote"), 0, 127, defaultConfig.deviceStartNote);
   const deviceRowOffset = clampInt(getValue("deviceRowOffset"), 0, 24, defaultConfig.deviceRowOffset);
 
@@ -321,6 +337,8 @@ function readConfigFromUi() {
     pitchSlideSemitonesPerPad,
     outputPitchBendRangeSemitones,
     assumeDefaultUserFirmwareSwitchMapping,
+    userFirmwareDecimationMs,
+    userFirmwareAxesByRow,
     deviceStartNote,
     deviceRowOffset,
     instrumentInputPort: getValue("instrumentInputPort") || "",
@@ -333,6 +351,8 @@ function readConfigFromUi() {
   setValue("pitchSlideSemitonesPerPad", ext.config.pitchSlideSemitonesPerPad);
   setValue("outputPitchBendRangeSemitones", ext.config.outputPitchBendRangeSemitones);
   setChecked("assumeDefaultUserFirmwareSwitchMapping", ext.config.assumeDefaultUserFirmwareSwitchMapping);
+  setValue("userFirmwareDecimationMs", ext.config.userFirmwareDecimationMs);
+  applyUserFirmwareAxesByRowToUi(ext.config.userFirmwareAxesByRow);
   setValue("linnStrumentInputProtocol", ext.config.linnStrumentInputProtocol ?? defaultConfig.linnStrumentInputProtocol);
   setValue("deviceStartNote", ext.config.deviceStartNote);
   setValue("deviceRowOffset", ext.config.deviceRowOffset);
@@ -1842,6 +1862,14 @@ async function configureLinnStrumentUserFirmwareMode() {
   }
 
   try {
+    const decimationMs = clampInt(
+      ext.config.userFirmwareDecimationMs,
+      0,
+      127,
+      defaultConfig.userFirmwareDecimationMs,
+    );
+    const axesByRow = normalizeUserFirmwareAxesByRow(ext.config.userFirmwareAxesByRow);
+
     ext.state.instrumentPaintingEnabled = true;
     // User Firmware Mode gives fixed coordinates:
     // - Rows are MIDI channels 1..8 (bottom row = 1)
@@ -1849,12 +1877,13 @@ async function configureLinnStrumentUserFirmwareMode() {
     await setLinnStrumentParamValue(245, 1); // User Firmware Mode = On
 
     for (let channel = 1; channel <= 8; channel++) {
+      const rowAxes = axesByRow[channel - 1];
       sendLinnStrumentControlChange(9, 1, channel);  // Slide mode on (emit deterministic row-slide transitions)
-      sendLinnStrumentControlChange(10, 1, channel); // X data on (14-bit MSB/LSB CC pairs)
-      sendLinnStrumentControlChange(11, 0, channel); // Y data off
-      sendLinnStrumentControlChange(12, 1, channel); // Z data on (poly pressure)
+      sendLinnStrumentControlChange(10, rowAxes.x ? 1 : 0, channel); // X data on/off (14-bit MSB/LSB CC pairs)
+      sendLinnStrumentControlChange(11, rowAxes.y ? 1 : 0, channel); // Y data on/off
+      sendLinnStrumentControlChange(12, rowAxes.z ? 1 : 0, channel); // Z data on/off (poly pressure)
     }
-    sendLinnStrumentControlChange(13, 0, 1); // Data decimation off
+    sendLinnStrumentControlChange(13, decimationMs, 1); // Data decimation interval in milliseconds
 
     ext.state.sync = {
       splitMode: 2,
@@ -1863,10 +1892,12 @@ async function configureLinnStrumentUserFirmwareMode() {
     };
     ext.config.assumeRowChannels = true;
     ext.config.linnStrumentInputProtocol = LINNSTRUMENT_INPUT_PROTOCOL_USER_FIRMWARE;
+    ext.config.userFirmwareDecimationMs = decimationMs;
+    ext.config.userFirmwareAxesByRow = axesByRow;
 
     populateUiFromConfig();
     persistConfig(ext.config);
-    log.success("Configured LinnStrument User Firmware Mode (NRPN 245=1). Enabled X slide + X/Z data on rows 1-8 (Y disabled).");
+    log.success(`Configured LinnStrument User Firmware Mode (NRPN 245=1). Applied per-row X/Y/Z settings and decimation=${decimationMs}ms.`);
   } catch (err) {
     console.error(err);
     log.warn(`Could not enable LinnStrument User Firmware Mode automatically: ${err?.message || err}`);
@@ -2146,6 +2177,32 @@ function getChecked(id) {
     return null;
   }
   return Boolean(el.checked);
+}
+
+function applyUserFirmwareAxesByRowToUi(value) {
+  const axesByRow = normalizeUserFirmwareAxesByRow(value);
+  for (let row = 1; row <= USER_FIRMWARE_ROW_COUNT; row++) {
+    const rowConfig = axesByRow[row - 1];
+    setChecked(getUserFirmwareAxisInputId(row, "x"), rowConfig.x);
+    setChecked(getUserFirmwareAxisInputId(row, "y"), rowConfig.y);
+    setChecked(getUserFirmwareAxisInputId(row, "z"), rowConfig.z);
+  }
+}
+
+function readUserFirmwareAxesByRowFromUi(currentValue) {
+  const fallback = normalizeUserFirmwareAxesByRow(currentValue);
+  return fallback.map((rowConfig, index) => {
+    const row = index + 1;
+    return {
+      x: getChecked(getUserFirmwareAxisInputId(row, "x")) ?? rowConfig.x,
+      y: getChecked(getUserFirmwareAxisInputId(row, "y")) ?? rowConfig.y,
+      z: getChecked(getUserFirmwareAxisInputId(row, "z")) ?? rowConfig.z,
+    };
+  });
+}
+
+function getUserFirmwareAxisInputId(row, axis) {
+  return `ufRow${row}${String(axis).toUpperCase()}Enabled`;
 }
 
 function setText(id, text) {

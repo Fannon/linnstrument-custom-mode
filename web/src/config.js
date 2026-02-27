@@ -1,3 +1,5 @@
+import { createDefaultUserFirmwareAxesByRow } from "./user-firmware-settings.js";
+
 export const STORAGE_KEY = "linnstrumentCustomModeConfig";
 
 export const defaultConfig = {
@@ -16,6 +18,8 @@ export const defaultConfig = {
   pitchSlideSemitonesPerPad: 1,
   outputPitchBendRangeSemitones: 2,
   assumeDefaultUserFirmwareSwitchMapping: true,
+  userFirmwareDecimationMs: 0,
+  userFirmwareAxesByRow: createDefaultUserFirmwareAxesByRow(),
   baseRootC: 36,
   selectedKey: 0,
   selectedModeId: "major",

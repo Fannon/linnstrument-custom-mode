@@ -16,7 +16,4 @@ Generally, check out what I put into tmp/ and note in AGENT.md what is useful. C
 
 ## TODO
 
-  1. [Medium] Decimation and some user-firmware controls are not fully surfaced as app options.
-     Firmware supports decimation CC13 and per-row X/Y/Z toggles (midi.md:37, midi.md:41, ls_midi.ino:409).
-     App configures these once in code (web/src/main.js:2124).
-     Suggestion: expose them as advanced settings for debugging/performance tuning.
+  (empty)
