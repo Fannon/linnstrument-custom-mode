@@ -46,6 +46,11 @@ import {
   normalizeUserFirmwareTimbreCc,
   normalizeUserFirmwareTimbreEnabled,
 } from "./user-firmware-y.js";
+import {
+  applyUserFirmwarePitchBendSmoothing14,
+  normalizeUserFirmwarePitchBendSmoothingEnabled,
+  normalizeUserFirmwarePitchBendSmoothingStep14,
+} from "./user-firmware-pitch-bend.js";
 import { resolveUserFirmwareDecimationMs } from "./user-firmware-decimation.js";
 import {
   getRoutedInputChannel,
@@ -96,6 +101,7 @@ const USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_2 = USER_FIRMWARE_CONTROL_STRIP_DEF
 const USER_FIRMWARE_CONTROL_STRIP_ROW_SPLIT = USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS.split;
 const USER_FIRMWARE_CONTROL_STRIP_ROW_EXIT = USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS.exit;
 const USER_FIRMWARE_X_MAX_14 = 4265;
+const USER_FIRMWARE_PITCH_ANCHOR_DEADBAND_X14 = 16;
 
 export const ext = {
   config: {},
@@ -119,6 +125,7 @@ export const ext = {
     modChannelsByPad: new Map(),
     controlOverlay: createControlOverlayState(),
     userFirmwareXByPad: new Map(),
+    lastPitchBend14ByChannel: new Map(),
     userFirmwareSlide: createUserFirmwareSlideState(),
     mpeVoices: createMpeVoiceAllocator({ minChannel: 2, maxChannel: 15 }),
     userFirmwareRuntimeActive: true,
@@ -1106,15 +1113,29 @@ function handleControlChange(msg) {
   }
 
   const key = noteKey(event.channel, xMessage.column);
-  const cached = ext.state.userFirmwareXByPad.get(key) || { msb: 0, lsb: 0 };
+  const cached = ext.state.userFirmwareXByPad.get(key) || {
+    msb: 0,
+    lsb: 0,
+    hasMsb: false,
+    hasLsb: false,
+    pendingMsb: false,
+    pendingLsb: false,
+  };
   if (xMessage.part === "msb") {
     cached.msb = xMessage.value7;
+    cached.hasMsb = true;
+    cached.pendingMsb = true;
   } else {
     cached.lsb = xMessage.value7;
+    cached.hasLsb = true;
+    cached.pendingLsb = true;
   }
   ext.state.userFirmwareXByPad.set(key, cached);
-
-  maybeForwardUserFirmwarePitchBendFromX(event.channel, xMessage.column, ((cached.msb & 0x7f) << 7) | (cached.lsb & 0x7f));
+  if (cached.hasMsb && cached.hasLsb && cached.pendingMsb && cached.pendingLsb) {
+    maybeForwardUserFirmwarePitchBendFromX(event.channel, xMessage.column, ((cached.msb & 0x7f) << 7) | (cached.lsb & 0x7f));
+    cached.pendingMsb = false;
+    cached.pendingLsb = false;
+  }
 }
 
 function applyLinnStrumentUserFirmwareModeNotification(enabled) {
@@ -1234,6 +1255,10 @@ function maybeForwardUserFirmwarePitchBendFromX(channel, inputColumn, x14) {
     sendLoopPitchBend14(8192, routed.channel);
     return;
   }
+  if (Math.abs(x14 - routed.pitchAnchorX14) <= USER_FIRMWARE_PITCH_ANCHOR_DEADBAND_X14) {
+    sendLoopPitchBend14(8192, routed.channel);
+    return;
+  }
   const semitonesPerPad = Number(ext.config.pitchSlideSemitonesPerPad) || 1;
   const hardwareColumns = (ext.config.linnStrumentSize / 8) + 1; // +1 control-strip column in user firmware mode
   const padWidthX = USER_FIRMWARE_X_MAX_14 / Math.max(hardwareColumns, 1);
@@ -1245,7 +1270,23 @@ function maybeForwardUserFirmwarePitchBendFromX(channel, inputColumn, x14) {
     16383,
     8192,
   );
-  sendLoopPitchBend14(bend14, routed.channel);
+  sendLoopPitchBend14(maybeSmoothUserFirmwarePitchBend14(bend14, routed.channel), routed.channel);
+}
+
+function maybeSmoothUserFirmwarePitchBend14(bend14, channel) {
+  const enabled = normalizeUserFirmwarePitchBendSmoothingEnabled(
+    ext.config.userFirmwarePitchBendSmoothingEnabled,
+    defaultConfig.userFirmwarePitchBendSmoothingEnabled,
+  );
+  const maxStep14 = normalizeUserFirmwarePitchBendSmoothingStep14(
+    ext.config.userFirmwarePitchBendSmoothingStep14,
+    defaultConfig.userFirmwarePitchBendSmoothingStep14,
+  );
+  return applyUserFirmwarePitchBendSmoothing14(
+    bend14,
+    ext.state.lastPitchBend14ByChannel.get(channel),
+    { enabled, maxStep14 },
+  );
 }
 
 function maybeForwardUserFirmwareTimbreFromY(channel, inputColumn, value7) {
@@ -1339,13 +1380,6 @@ function handleUserFirmwareSlideTransition(event, pad, transition) {
       transitionResult.noteOn.velocity,
       transitionResult.noteOn.channel,
     );
-  } else {
-    const targetKey = noteKey(event.channel, event.noteNumber);
-    const cachedTargetX = ext.state.userFirmwareXByPad.get(targetKey);
-    if (cachedTargetX && Number.isFinite(cachedTargetX.msb) && Number.isFinite(cachedTargetX.lsb)) {
-      const x14 = ((cachedTargetX.msb & 0x7f) << 7) | (cachedTargetX.lsb & 0x7f);
-      maybeForwardUserFirmwarePitchBendFromX(event.channel, event.noteNumber, x14);
-    }
   }
 
   refreshDetectedChord();
@@ -1696,6 +1730,7 @@ function sendLoopChannelAftertouch(value, channel = 1) {
 function sendLoopPitchBend14(value14, channel = 1) {
   const bend = clampInt(value14, 0, 16383, 8192);
   sendRawToLoop([0xe0 | ((channel - 1) & 0x0f), bend & 0x7f, (bend >> 7) & 0x7f]);
+  ext.state.lastPitchBend14ByChannel.set(channel, bend);
 }
 
 function sendRawToLoop(data) {
@@ -1768,6 +1803,7 @@ function allNotesOff() {
   ext.state.activeLoopNotes.clear();
   ext.state.routedNotesByPad.clear();
   ext.state.userFirmwareXByPad.clear();
+  ext.state.lastPitchBend14ByChannel.clear();
   clearMpeVoiceAllocator(ext.state.mpeVoices);
   clearUserFirmwareSlideState(ext.state.userFirmwareSlide);
   clearNrpnDecoderState(ext.state.nrpnDecoder);
@@ -1789,6 +1825,7 @@ function clearHeldState() {
   ext.state.routedNotesByPad.clear();
   ext.state.activeLoopNotes.clear();
   ext.state.userFirmwareXByPad.clear();
+  ext.state.lastPitchBend14ByChannel.clear();
   clearMpeVoiceAllocator(ext.state.mpeVoices);
   clearUserFirmwareSlideState(ext.state.userFirmwareSlide);
   clearNrpnDecoderState(ext.state.nrpnDecoder);
@@ -1804,6 +1841,7 @@ function hasTransientPerformanceState() {
     || ext.state.activeLoopNotes.size > 0
     || ext.state.mpeVoices.byInputKey.size > 0
     || ext.state.userFirmwareXByPad.size > 0
+    || ext.state.lastPitchBend14ByChannel.size > 0
     || ext.state.userFirmwareSlide.pendingByChannel.size > 0
     || ext.state.userFirmwareSlide.activeByChannel.size > 0;
 }

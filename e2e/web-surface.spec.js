@@ -258,9 +258,12 @@ test("continuous slide keeps one note and bends only after X moves from initial 
     const input = window.__instrumentInput;
 
     input.emit("noteon", { note: { number: 3 }, channel: 4, rawVelocity: 100 });
-    input.emit("controlchange", { controller: { number: 3 }, channel: 4, rawValue: 30 }); // anchor capture
-    input.emit("controlchange", { controller: { number: 3 }, channel: 4, rawValue: 30 }); // still centered
-    input.emit("controlchange", { controller: { number: 3 }, channel: 4, rawValue: 45 }); // moved -> bend
+    input.emit("controlchange", { controller: { number: 3 }, channel: 4, rawValue: 30 }); // anchor capture (MSB)
+    input.emit("controlchange", { controller: { number: 35 }, channel: 4, rawValue: 0 }); // anchor capture (LSB)
+    input.emit("controlchange", { controller: { number: 3 }, channel: 4, rawValue: 30 }); // still centered (MSB)
+    input.emit("controlchange", { controller: { number: 35 }, channel: 4, rawValue: 0 }); // still centered (LSB)
+    input.emit("controlchange", { controller: { number: 3 }, channel: 4, rawValue: 45 }); // moved -> bend (MSB)
+    input.emit("controlchange", { controller: { number: 35 }, channel: 4, rawValue: 0 }); // moved -> bend (LSB)
 
     input.emit("controlchange", { controller: { number: 119 }, channel: 4, rawValue: 3 });
     input.emit("noteon", { note: { number: 4 }, channel: 4, rawVelocity: 100 });
@@ -294,4 +297,119 @@ test("continuous slide keeps one note and bends only after X moves from initial 
   expect(analysis.stopNoteCount).toBe(1);
   expect(analysis.firstStopMatchesFirstPlay).toBe(true);
   expect(analysis.pitchBends.some((value) => value !== 8192)).toBe(true);
+});
+
+test("user-firmware X bend waits for coherent MSB/LSB pairs", async ({ page }) => {
+  const analysis = await page.evaluate(() => {
+    window.__midiEvents.length = 0;
+    const input = window.__instrumentInput;
+    const readBends = () => window.__midiEvents
+      .filter((event) => event.output === "loopMIDI Port" && event.type === "raw" && (event.data?.[0] & 0xf0) === 0xe0)
+      .map((event) => ((event.data?.[2] || 0) << 7) | (event.data?.[1] || 0));
+
+    input.emit("noteon", { note: { number: 3 }, channel: 4, rawVelocity: 100 }); // center
+    input.emit("controlchange", { controller: { number: 3 }, channel: 4, rawValue: 20 }); // msb only
+    input.emit("controlchange", { controller: { number: 3 }, channel: 4, rawValue: 40 }); // msb only
+    const afterMsbOnly = readBends();
+
+    input.emit("controlchange", { controller: { number: 35 }, channel: 4, rawValue: 0 }); // first coherent sample: anchor
+    const afterAnchorPair = readBends();
+
+    input.emit("controlchange", { controller: { number: 3 }, channel: 4, rawValue: 50 }); // msb only: no new bend
+    const afterMovedMsbOnly = readBends();
+
+    input.emit("controlchange", { controller: { number: 35 }, channel: 4, rawValue: 0 }); // coherent moved sample
+    const afterMovedPair = readBends();
+
+    input.emit("noteoff", { note: { number: 3 }, channel: 4, rawVelocity: 0 });
+
+    return {
+      afterMsbOnly,
+      afterAnchorPair,
+      afterMovedMsbOnly,
+      afterMovedPair,
+    };
+  });
+
+  expect(analysis.afterMsbOnly.length).toBe(1); // note-on center only
+  expect(analysis.afterAnchorPair.length).toBe(2); // anchor capture sends centered bend
+  expect(analysis.afterMovedMsbOnly.length).toBe(2); // no bend until lsb counterpart
+  expect(analysis.afterMovedPair.length).toBe(3);
+  expect(analysis.afterMovedPair.at(-1)).not.toBe(8192);
+});
+
+test("MPE mode routes pressure and pitch bend to the allocated note channel", async ({ page }) => {
+  const analysis = await page.evaluate(() => {
+    window.__midiEvents.length = 0;
+    const input = window.__instrumentInput;
+
+    input.emit("noteon", { note: { number: 3 }, channel: 4, rawVelocity: 100 });
+    input.emit("channelaftertouch", { channel: 4, rawValue: 71 });
+    input.emit("pitchbend", { channel: 4, dataBytes: [0, 96] });
+    input.emit("noteoff", { note: { number: 3 }, channel: 4, rawVelocity: 0 });
+
+    const loopEvents = window.__midiEvents.filter((event) => event.output === "loopMIDI Port");
+    const play = loopEvents.find((event) => event.type === "playNote");
+    const channelAftertouch = loopEvents.find((event) => event.type === "raw" && (event.data?.[0] & 0xf0) === 0xd0);
+    const pitchBend = loopEvents.find((event) => event.type === "raw" && (event.data?.[0] & 0xf0) === 0xe0 && (((event.data?.[2] || 0) << 7) | (event.data?.[1] || 0)) !== 8192);
+    return {
+      playChannel: play?.channel ?? null,
+      pressureChannel: channelAftertouch ? ((channelAftertouch.data[0] & 0x0f) + 1) : null,
+      bendChannel: pitchBend ? ((pitchBend.data[0] & 0x0f) + 1) : null,
+    };
+  });
+
+  expect(analysis.playChannel).toBeGreaterThan(1);
+  expect(analysis.pressureChannel).toBe(analysis.playChannel);
+  expect(analysis.bendChannel).toBe(analysis.playChannel);
+});
+
+test("anchor deadband keeps pitch centered for tiny coherent X movement", async ({ page }) => {
+  const bends = await page.evaluate(() => {
+    window.__midiEvents.length = 0;
+    const input = window.__instrumentInput;
+
+    input.emit("noteon", { note: { number: 3 }, channel: 4, rawVelocity: 100 });
+    input.emit("controlchange", { controller: { number: 3 }, channel: 4, rawValue: 30 });
+    input.emit("controlchange", { controller: { number: 35 }, channel: 4, rawValue: 0 }); // anchor pair
+    input.emit("controlchange", { controller: { number: 3 }, channel: 4, rawValue: 30 });
+    input.emit("controlchange", { controller: { number: 35 }, channel: 4, rawValue: 10 }); // delta 10 (inside deadband)
+    input.emit("noteoff", { note: { number: 3 }, channel: 4, rawVelocity: 0 });
+
+    return window.__midiEvents
+      .filter((event) => event.output === "loopMIDI Port" && event.type === "raw" && (event.data?.[0] & 0xf0) === 0xe0)
+      .map((event) => ((event.data?.[2] || 0) << 7) | (event.data?.[1] || 0));
+  });
+
+  expect(bends.length).toBeGreaterThanOrEqual(3);
+  expect(bends.at(-1)).toBe(8192);
+});
+
+test("optional pitch bend smoothing limits per-update bend step", async ({ page }) => {
+  const analysis = await page.evaluate(() => {
+    window.__midiEvents.length = 0;
+    window.ext.config.userFirmwarePitchBendSmoothingEnabled = true;
+    window.ext.config.userFirmwarePitchBendSmoothingStep14 = 64;
+
+    const input = window.__instrumentInput;
+    input.emit("noteon", { note: { number: 3 }, channel: 4, rawVelocity: 100 });
+    input.emit("controlchange", { controller: { number: 3 }, channel: 4, rawValue: 30 });
+    input.emit("controlchange", { controller: { number: 35 }, channel: 4, rawValue: 0 }); // anchor
+    input.emit("controlchange", { controller: { number: 3 }, channel: 4, rawValue: 80 });
+    input.emit("controlchange", { controller: { number: 35 }, channel: 4, rawValue: 0 }); // large jump
+    input.emit("noteoff", { note: { number: 3 }, channel: 4, rawVelocity: 0 });
+
+    const bends = window.__midiEvents
+      .filter((event) => event.output === "loopMIDI Port" && event.type === "raw" && (event.data?.[0] & 0xf0) === 0xe0)
+      .map((event) => ((event.data?.[2] || 0) << 7) | (event.data?.[1] || 0));
+    const lastTwo = bends.slice(-2);
+    return {
+      bends,
+      lastDelta: lastTwo.length === 2 ? Math.abs(lastTwo[1] - lastTwo[0]) : null,
+    };
+  });
+
+  expect(analysis.bends.length).toBeGreaterThanOrEqual(3);
+  expect(analysis.lastDelta).not.toBeNull();
+  expect(analysis.lastDelta).toBeLessThanOrEqual(64);
 });

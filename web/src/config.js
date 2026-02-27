@@ -9,6 +9,11 @@ import {
   normalizeUserFirmwareTimbreEnabled,
   USER_FIRMWARE_TIMBRE_CC_DEFAULT,
 } from "./user-firmware-y.js";
+import {
+  normalizeUserFirmwarePitchBendSmoothingEnabled,
+  normalizeUserFirmwarePitchBendSmoothingStep14,
+  USER_FIRMWARE_PITCH_BEND_SMOOTHING_STEP_14_DEFAULT,
+} from "./user-firmware-pitch-bend.js";
 import { resolveUserFirmwareDecimationMs } from "./user-firmware-decimation.js";
 
 export const STORAGE_KEY = "linnstrumentCustomModeConfig";
@@ -29,6 +34,8 @@ export const defaultConfig = {
   userFirmwareSlideModeExplicit: false,
   userFirmwareTimbreEnabled: true,
   userFirmwareTimbreCc: USER_FIRMWARE_TIMBRE_CC_DEFAULT,
+  userFirmwarePitchBendSmoothingEnabled: false,
+  userFirmwarePitchBendSmoothingStep14: USER_FIRMWARE_PITCH_BEND_SMOOTHING_STEP_14_DEFAULT,
   outputPitchBendRangeSemitones: 2,
   mpeEnabled: true,
   assumeDefaultUserFirmwareSwitchMapping: true,
@@ -75,6 +82,14 @@ export function initConfig() {
       userFirmwareTimbreCc: normalizeUserFirmwareTimbreCc(
         parsed?.userFirmwareTimbreCc,
         defaultConfig.userFirmwareTimbreCc,
+      ),
+      userFirmwarePitchBendSmoothingEnabled: normalizeUserFirmwarePitchBendSmoothingEnabled(
+        parsed?.userFirmwarePitchBendSmoothingEnabled,
+        defaultConfig.userFirmwarePitchBendSmoothingEnabled,
+      ),
+      userFirmwarePitchBendSmoothingStep14: normalizeUserFirmwarePitchBendSmoothingStep14(
+        parsed?.userFirmwarePitchBendSmoothingStep14,
+        defaultConfig.userFirmwarePitchBendSmoothingStep14,
       ),
       userFirmwareDecimationMs: resolveUserFirmwareDecimationMs(
         parsed?.userFirmwareDecimationMs,

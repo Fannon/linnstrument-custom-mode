@@ -1,8 +1,7 @@
 ## TODO
 
-All tracked TODO items are implemented.
-
-## Quantize
-
-When not hitting a pad excactly center x, don't already pitch bend it. 
-Take a look how the linnstrument firmware does it.
+- [x] Prevent stale cached X from being reapplied at slide transition in continuous mode.
+- [x] Coalesce user-firmware X MSB/LSB updates so bend emits from coherent 14-bit samples only.
+- [x] Add a small anchor deadband so tiny X jitter does not produce audible bend.
+- [x] Add optional pitch-bend smoothing/rate limiting to reduce steppy output.
+- [x] Add unit/e2e tests for interleaved MSB/LSB updates and multi-pad continuous slides.
