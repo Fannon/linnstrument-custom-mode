@@ -26,6 +26,13 @@ import {
   shouldLightPlayablePad as shouldLightPlayablePadCore,
   getActiveLayoutRowOffset as getActiveLayoutRowOffsetCore,
 } from "./core-logic.js";
+import {
+  createUserFirmwareSlideState,
+  clearUserFirmwareSlideState,
+  recordUserFirmwareSlideStart,
+  consumeUserFirmwareSlideTarget,
+  shouldIgnoreUserFirmwareSlideSourceRelease,
+} from "./user-firmware-slide.js";
 const MODE_BY_ID = Object.fromEntries(MODES.map((mode) => [mode.id, mode]));
 
 const INSTRUMENT_COLORS = {
@@ -82,6 +89,7 @@ export const ext = {
     },
     userFirmwareXByPad: new Map(),
     userFirmwarePitchAnchorByChannel: new Map(),
+    userFirmwareSlide: createUserFirmwareSlideState(),
     detectedChordName: "",
     instrumentPaintingEnabled: true,
   },
@@ -713,6 +721,13 @@ function handleNoteOn(msg) {
       break;
     }
     case "play-note": {
+      if (isLinnStrumentUserFirmwareModeEnabled()) {
+        const transition = consumeUserFirmwareSlideTarget(ext.state.userFirmwareSlide, event.channel, event.noteNumber);
+        if (transition && handleUserFirmwareSlideTransition(event, pad, transition)) {
+          break;
+        }
+      }
+
       const channelHadPlayableNote = Array.from(ext.state.routedNotesByPad.values()).some(
         (entry) => entry.channel === event.channel,
       );
@@ -760,29 +775,21 @@ function handleNoteOff(msg) {
     return;
   }
 
+  if (
+    isLinnStrumentUserFirmwareModeEnabled()
+    && shouldIgnoreUserFirmwareSlideSourceRelease(
+      ext.state.userFirmwareSlide,
+      event.channel,
+      event.noteNumber,
+      event.velocity,
+    )
+  ) {
+    return;
+  }
+
   const routed = ext.state.routedNotesByPad.get(event.coord);
   if (routed) {
-    sendLoopNoteOff(routed.note, event.velocity, routed.channel);
-    ext.state.routedNotesByPad.delete(event.coord);
-    refreshDetectedChord();
-    if (isLinnStrumentUserFirmwareModeEnabled()) {
-      if (Number.isFinite(routed.inputColumn)) {
-        ext.state.userFirmwareXByPad.delete(noteKey(routed.channel, routed.inputColumn));
-      }
-      const anchor = ext.state.userFirmwarePitchAnchorByChannel.get(routed.channel);
-      const remainingOnChannel = Array.from(ext.state.routedNotesByPad.values()).find((entry) => entry.channel === routed.channel);
-      if (!remainingOnChannel) {
-        ext.state.userFirmwarePitchAnchorByChannel.delete(routed.channel);
-        sendLoopPitchBend14(8192, routed.channel);
-      } else if (
-        (!anchor || anchor.inputColumn === routed.inputColumn)
-        && Number.isFinite(remainingOnChannel.inputColumn)
-      ) {
-        ext.state.userFirmwarePitchAnchorByChannel.set(routed.channel, { inputColumn: remainingOnChannel.inputColumn });
-      }
-    }
-    refreshSameOutputNoteHighlights(routed.note);
-    refreshInstrumentSameOutputNoteHighlights(routed.note);
+    finalizeRoutedNoteOff(event.coord, event.velocity);
     return;
   }
 
@@ -855,6 +862,7 @@ function handleControlChange(msg) {
   }
 
   if (event.controller === 119) {
+    recordUserFirmwareSlideStart(ext.state.userFirmwareSlide, event.channel, event.value7);
     return;
   }
 
@@ -967,6 +975,91 @@ function isUserFirmwarePlayableInputColumnHeldOnChannel(channel, inputColumn) {
     }
   }
   return false;
+}
+
+function handleUserFirmwareSlideTransition(event, pad, transition) {
+  if (!event || !pad || pad.role !== "play-note" || !transition) {
+    return false;
+  }
+
+  const sourceEntry = findRoutedEntryByInputPosition(event.channel, transition.sourceColumn);
+  if (!sourceEntry) {
+    return false;
+  }
+
+  const existingOnTargetCoord = ext.state.routedNotesByPad.get(event.coord);
+  if (existingOnTargetCoord && sourceEntry.coord !== event.coord) {
+    finalizeRoutedNoteOff(event.coord, 0);
+  }
+
+  const sourceRouted = sourceEntry.routed;
+  const sourceNote = sourceRouted.note;
+  const targetNote = pad.outNote;
+  const outputChannel = sourceRouted.channel;
+
+  sendLoopNoteOn(targetNote, event.velocity, outputChannel);
+  sendLoopNoteOff(sourceNote, transition.targetColumn, outputChannel);
+
+  ext.state.routedNotesByPad.delete(sourceEntry.coord);
+  ext.state.routedNotesByPad.set(event.coord, {
+    ...sourceRouted,
+    note: targetNote,
+    inputColumn: event.noteNumber,
+  });
+
+  ext.state.userFirmwarePitchAnchorByChannel.set(outputChannel, { inputColumn: event.noteNumber });
+  sendLoopPitchBend14(8192, outputChannel);
+
+  refreshDetectedChord();
+  refreshSameOutputNoteHighlights(sourceNote);
+  refreshInstrumentSameOutputNoteHighlights(sourceNote);
+  if (targetNote !== sourceNote) {
+    refreshSameOutputNoteHighlights(targetNote);
+    refreshInstrumentSameOutputNoteHighlights(targetNote);
+  }
+  return true;
+}
+
+function findRoutedEntryByInputPosition(channel, inputColumn) {
+  if (!Number.isFinite(channel) || !Number.isFinite(inputColumn)) {
+    return null;
+  }
+  for (const [coord, routed] of ext.state.routedNotesByPad.entries()) {
+    if (routed.channel === channel && routed.inputColumn === inputColumn) {
+      return { coord, routed };
+    }
+  }
+  return null;
+}
+
+function finalizeRoutedNoteOff(coord, velocity) {
+  const routed = ext.state.routedNotesByPad.get(coord);
+  if (!routed) {
+    return false;
+  }
+
+  sendLoopNoteOff(routed.note, velocity, routed.channel);
+  ext.state.routedNotesByPad.delete(coord);
+  refreshDetectedChord();
+  if (isLinnStrumentUserFirmwareModeEnabled()) {
+    if (Number.isFinite(routed.inputColumn)) {
+      ext.state.userFirmwareXByPad.delete(noteKey(routed.channel, routed.inputColumn));
+    }
+    const anchor = ext.state.userFirmwarePitchAnchorByChannel.get(routed.channel);
+    const remainingOnChannel = Array.from(ext.state.routedNotesByPad.values()).find((entry) => entry.channel === routed.channel);
+    if (!remainingOnChannel) {
+      ext.state.userFirmwarePitchAnchorByChannel.delete(routed.channel);
+      sendLoopPitchBend14(8192, routed.channel);
+    } else if (
+      (!anchor || anchor.inputColumn === routed.inputColumn)
+      && Number.isFinite(remainingOnChannel.inputColumn)
+    ) {
+      ext.state.userFirmwarePitchAnchorByChannel.set(routed.channel, { inputColumn: remainingOnChannel.inputColumn });
+    }
+  }
+  refreshSameOutputNoteHighlights(routed.note);
+  refreshInstrumentSameOutputNoteHighlights(routed.note);
+  return true;
 }
 
 function normalizeTouchEvent(msg) {
@@ -1420,6 +1513,7 @@ function allNotesOff() {
   ext.state.routedNotesByPad.clear();
   ext.state.userFirmwarePitchAnchorByChannel.clear();
   ext.state.userFirmwareXByPad.clear();
+  clearUserFirmwareSlideState(ext.state.userFirmwareSlide);
   ext.state.detectedChordName = "";
   updateChordStatusUi();
 }
@@ -1439,6 +1533,7 @@ function clearHeldState() {
   ext.state.activeLoopNotes.clear();
   ext.state.userFirmwarePitchAnchorByChannel.clear();
   ext.state.userFirmwareXByPad.clear();
+  clearUserFirmwareSlideState(ext.state.userFirmwareSlide);
   ext.state.detectedChordName = "";
   updateChordStatusUi();
 }
@@ -1450,7 +1545,9 @@ function hasTransientPerformanceState() {
     || ext.state.routedNotesByPad.size > 0
     || ext.state.activeLoopNotes.size > 0
     || ext.state.userFirmwarePitchAnchorByChannel.size > 0
-    || ext.state.userFirmwareXByPad.size > 0;
+    || ext.state.userFirmwareXByPad.size > 0
+    || ext.state.userFirmwareSlide.pendingByChannel.size > 0
+    || ext.state.userFirmwareSlide.activeByChannel.size > 0;
 }
 
 function getGridMappingSignature() {
