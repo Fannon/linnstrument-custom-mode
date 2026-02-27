@@ -46,6 +46,7 @@ import {
   normalizeUserFirmwareTimbreCc,
   normalizeUserFirmwareTimbreEnabled,
 } from "./user-firmware-y.js";
+import { resolveUserFirmwareDecimationMs } from "./user-firmware-decimation.js";
 import {
   getRoutedInputChannel,
   isMpeModeEnabled as isMpeModeEnabledCore,
@@ -293,10 +294,9 @@ function populateUiFromConfig() {
     normalizeUserFirmwareTimbreCc(ext.config.userFirmwareTimbreCc, defaultConfig.userFirmwareTimbreCc),
   );
   setValue("outputPitchBendRangeSemitones", ext.config.outputPitchBendRangeSemitones);
-  setValue(
-    "userFirmwareDecimationMs",
-    clampInt(ext.config.userFirmwareDecimationMs, 0, 127, defaultConfig.userFirmwareDecimationMs),
-  );
+  setValue("userFirmwareDecimationMs", resolveUserFirmwareDecimationMs(
+    ext.config.userFirmwareDecimationMs,
+  ).effectiveMs);
   applyUserFirmwareAxesByRowToUi(ext.config.userFirmwareAxesByRow);
   setValue("deviceStartNote", ext.config.deviceStartNote);
   setValue("deviceRowOffset", ext.config.deviceRowOffset);
@@ -350,12 +350,9 @@ function readConfigFromUi() {
   const assumeDefaultUserFirmwareSwitchMapping = assumeDefaultUserFirmwareSwitchMappingRaw === null
     ? Boolean(ext.config.assumeDefaultUserFirmwareSwitchMapping ?? defaultConfig.assumeDefaultUserFirmwareSwitchMapping)
     : assumeDefaultUserFirmwareSwitchMappingRaw;
-  const userFirmwareDecimationMs = clampInt(
+  const userFirmwareDecimationMs = resolveUserFirmwareDecimationMs(
     getValue("userFirmwareDecimationMs"),
-    0,
-    127,
-    defaultConfig.userFirmwareDecimationMs,
-  );
+  ).effectiveMs;
   const userFirmwareAxesByRow = readUserFirmwareAxesByRowFromUi(ext.config.userFirmwareAxesByRow);
   const deviceStartNote = clampInt(getValue("deviceStartNote"), 0, 127, defaultConfig.deviceStartNote);
   const deviceRowOffset = clampInt(getValue("deviceRowOffset"), 0, 24, defaultConfig.deviceRowOffset);
@@ -2047,12 +2044,10 @@ async function configureLinnStrumentUserFirmwareMode() {
   }
 
   try {
-    const decimationMs = clampInt(
+    const decimation = resolveUserFirmwareDecimationMs(
       ext.config.userFirmwareDecimationMs,
-      0,
-      127,
-      defaultConfig.userFirmwareDecimationMs,
     );
+    const decimationMs = decimation.effectiveMs;
     const axesByRow = normalizeUserFirmwareAxesByRow(ext.config.userFirmwareAxesByRow);
 
     ext.state.instrumentPaintingEnabled = true;
@@ -2076,6 +2071,11 @@ async function configureLinnStrumentUserFirmwareMode() {
 
     populateUiFromConfig();
     persistConfig(ext.config);
+    if (decimation.clampedToMinimum) {
+      log.warn(
+        `User Firmware decimation ${decimation.requestedMs}ms is below recommended minimum ${decimation.minimumMs}ms; using ${decimation.effectiveMs}ms.`,
+      );
+    }
     log.success(`Configured LinnStrument User Firmware Mode (NRPN 245=1). Applied per-row X/Y/Z settings and decimation=${decimationMs}ms.`);
   } catch (err) {
     console.error(err);

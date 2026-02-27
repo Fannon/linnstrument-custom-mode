@@ -43,6 +43,7 @@ describe("config", () => {
       userFirmwareSlideMode: "invalid-mode",
       userFirmwareTimbreEnabled: "0",
       userFirmwareTimbreCc: 999,
+      userFirmwareDecimationMs: 5,
       userFirmwareAxesByRow: [{ x: false, y: true, z: false }],
     };
     globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify(legacy));
@@ -52,6 +53,7 @@ describe("config", () => {
     expect(config.userFirmwareSlideMode).toBe(defaultConfig.userFirmwareSlideMode);
     expect(config.userFirmwareTimbreEnabled).toBe(false);
     expect(config.userFirmwareTimbreCc).toBe(127);
+    expect(config.userFirmwareDecimationMs).toBe(12);
     expect(config.userFirmwareAxesByRow[0]).toEqual({ x: false, y: true, z: false });
     expect(config.userFirmwareAxesByRow[1]).toEqual({ x: true, y: false, z: true });
     expect("linnStrumentInputProtocol" in config).toBe(false);

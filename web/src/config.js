@@ -5,6 +5,7 @@ import {
   normalizeUserFirmwareTimbreEnabled,
   USER_FIRMWARE_TIMBRE_CC_DEFAULT,
 } from "./user-firmware-y.js";
+import { resolveUserFirmwareDecimationMs } from "./user-firmware-decimation.js";
 
 export const STORAGE_KEY = "linnstrumentCustomModeConfig";
 
@@ -69,6 +70,9 @@ export function initConfig() {
         parsed?.userFirmwareTimbreCc,
         defaultConfig.userFirmwareTimbreCc,
       ),
+      userFirmwareDecimationMs: resolveUserFirmwareDecimationMs(
+        parsed?.userFirmwareDecimationMs,
+      ).effectiveMs,
       userFirmwareAxesByRow: normalizeUserFirmwareAxesByRow(parsedUserFirmwareAxesByRow),
     };
   } catch (err) {
