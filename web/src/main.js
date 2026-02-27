@@ -34,6 +34,10 @@ import {
   shouldIgnoreUserFirmwareSlideSourceRelease,
 } from "./user-firmware-slide.js";
 import {
+  USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS,
+  resolveUserFirmwareControlStripCommand as resolveUserFirmwareControlStripCommandCore,
+} from "./user-firmware-control-strip.js";
+import {
   createNrpnDecoderState,
   clearNrpnDecoderState,
   consumeUserFirmwareModeNotification,
@@ -60,10 +64,10 @@ const INSTRUMENT_COLORS = {
 const DEBUG_CONTROL_OVERLAY = true;
 const LINNSTRUMENT_INPUT_PROTOCOL_STANDARD = "standard";
 const LINNSTRUMENT_INPUT_PROTOCOL_USER_FIRMWARE = "user-firmware";
-const USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_1 = 3; // 3rd control-strip button from bottom (Oct-)
-const USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_2 = 4; // 4th control-strip button from bottom (Oct+)
-const USER_FIRMWARE_CONTROL_STRIP_ROW_SPLIT = 2;    // 2nd control-strip button from bottom (Split)
-const USER_FIRMWARE_CONTROL_STRIP_ROW_EXIT = 7;     // 7th control-strip button from bottom (Exit User Firmware)
+const USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_1 = USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS.switch1;
+const USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_2 = USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS.switch2;
+const USER_FIRMWARE_CONTROL_STRIP_ROW_SPLIT = USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS.split;
+const USER_FIRMWARE_CONTROL_STRIP_ROW_EXIT = USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS.exit;
 const USER_FIRMWARE_X_MAX_14 = 4265;
 
 export const ext = {
@@ -249,6 +253,10 @@ function populateStateSelectors() {
 function populateUiFromConfig() {
   setValue("presetSelect", ext.config.presetId);
   setValue("linnStrumentInputProtocol", ext.config.linnStrumentInputProtocol ?? defaultConfig.linnStrumentInputProtocol);
+  setChecked(
+    "assumeDefaultUserFirmwareSwitchMapping",
+    ext.config.assumeDefaultUserFirmwareSwitchMapping ?? defaultConfig.assumeDefaultUserFirmwareSwitchMapping,
+  );
   setValue("stateTonicSelect", mod(ext.config.selectedKey ?? defaultConfig.selectedKey, 12));
   setValue("stateScaleSelect", ext.config.selectedModeId ?? defaultConfig.selectedModeId);
   setValue("layoutRowOffsetScale", ext.config.layoutRowOffsetScale);
@@ -295,6 +303,10 @@ function readConfigFromUi() {
     96,
     defaultConfig.outputPitchBendRangeSemitones,
   );
+  const assumeDefaultUserFirmwareSwitchMappingRaw = getChecked("assumeDefaultUserFirmwareSwitchMapping");
+  const assumeDefaultUserFirmwareSwitchMapping = assumeDefaultUserFirmwareSwitchMappingRaw === null
+    ? Boolean(ext.config.assumeDefaultUserFirmwareSwitchMapping ?? defaultConfig.assumeDefaultUserFirmwareSwitchMapping)
+    : assumeDefaultUserFirmwareSwitchMappingRaw;
   const deviceStartNote = clampInt(getValue("deviceStartNote"), 0, 127, defaultConfig.deviceStartNote);
   const deviceRowOffset = clampInt(getValue("deviceRowOffset"), 0, 24, defaultConfig.deviceRowOffset);
 
@@ -308,6 +320,7 @@ function readConfigFromUi() {
     layoutRowOffsetAllNotes,
     pitchSlideSemitonesPerPad,
     outputPitchBendRangeSemitones,
+    assumeDefaultUserFirmwareSwitchMapping,
     deviceStartNote,
     deviceRowOffset,
     instrumentInputPort: getValue("instrumentInputPort") || "",
@@ -319,6 +332,7 @@ function readConfigFromUi() {
   setValue("layoutRowOffsetAllNotes", ext.config.layoutRowOffsetAllNotes);
   setValue("pitchSlideSemitonesPerPad", ext.config.pitchSlideSemitonesPerPad);
   setValue("outputPitchBendRangeSemitones", ext.config.outputPitchBendRangeSemitones);
+  setChecked("assumeDefaultUserFirmwareSwitchMapping", ext.config.assumeDefaultUserFirmwareSwitchMapping);
   setValue("linnStrumentInputProtocol", ext.config.linnStrumentInputProtocol ?? defaultConfig.linnStrumentInputProtocol);
   setValue("deviceStartNote", ext.config.deviceStartNote);
   setValue("deviceRowOffset", ext.config.deviceRowOffset);
@@ -1206,29 +1220,11 @@ function normalizeUserFirmwareControlStripCommandEvent(msg) {
 }
 
 function resolveUserFirmwareControlStripCommand(noteNumber, channel) {
-  if (!isLinnStrumentUserFirmwareModeEnabled()) {
-    return null;
-  }
-  if (!Number.isFinite(noteNumber) || !Number.isFinite(channel)) {
-    return null;
-  }
-  if (noteNumber !== 0) {
-    return null;
-  }
-
-  if (channel === USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_1) {
-    return "octave-down";
-  }
-  if (channel === USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_2) {
-    return "octave-up";
-  }
-  if (channel === USER_FIRMWARE_CONTROL_STRIP_ROW_SPLIT) {
-    return "overlay";
-  }
-  if (channel === USER_FIRMWARE_CONTROL_STRIP_ROW_EXIT) {
-    return "exit-user-firmware";
-  }
-  return null;
+  return resolveUserFirmwareControlStripCommandCore(noteNumber, channel, {
+    userFirmwareModeEnabled: isLinnStrumentUserFirmwareModeEnabled(),
+    assumeDefaultSwitchMapping: ext.config.assumeDefaultUserFirmwareSwitchMapping ?? defaultConfig.assumeDefaultUserFirmwareSwitchMapping,
+    rows: USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS,
+  });
 }
 
 function resolvePadCoord(noteNumber, channel) {
@@ -1733,10 +1729,11 @@ function paintInstrumentUserFirmwareControlStrip() {
 }
 
 function getUserFirmwareControlStripColor(y, activeOverlay = false) {
-  if (y === USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_1 - 1) {
+  const assumeDefaultSwitchMapping = ext.config.assumeDefaultUserFirmwareSwitchMapping ?? defaultConfig.assumeDefaultUserFirmwareSwitchMapping;
+  if (assumeDefaultSwitchMapping && y === USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_1 - 1) {
     return INSTRUMENT_COLORS.octave; // Switch 1 = Oct-
   }
-  if (y === USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_2 - 1) {
+  if (assumeDefaultSwitchMapping && y === USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_2 - 1) {
     return INSTRUMENT_COLORS.octave; // Switch 2 = Oct+
   }
   if (y === USER_FIRMWARE_CONTROL_STRIP_ROW_SPLIT - 1) {
@@ -2131,9 +2128,24 @@ function setValue(id, value) {
   }
 }
 
+function setChecked(id, checked) {
+  const el = document.getElementById(id);
+  if (el && "checked" in el) {
+    el.checked = Boolean(checked);
+  }
+}
+
 function getValue(id) {
   const el = document.getElementById(id);
   return el ? el.value : "";
+}
+
+function getChecked(id) {
+  const el = document.getElementById(id);
+  if (!el || !("checked" in el)) {
+    return null;
+  }
+  return Boolean(el.checked);
 }
 
 function setText(id, text) {

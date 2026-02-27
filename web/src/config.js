@@ -15,6 +15,7 @@ export const defaultConfig = {
   layoutRowOffsetAllNotes: 5,
   pitchSlideSemitonesPerPad: 1,
   outputPitchBendRangeSemitones: 2,
+  assumeDefaultUserFirmwareSwitchMapping: true,
   baseRootC: 36,
   selectedKey: 0,
   selectedModeId: "major",
