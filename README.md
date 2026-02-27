@@ -20,7 +20,7 @@ The current prototype focuses on a single preset layout that turns the LinnStrum
   - `1 pad = 1 semitone`
   - `1 pad = 2 semitones`
 - Surface visualization in browser + optional pad coloring on the LinnStrument itself
-- Firmware-mode-only routing (LinnStrument User Firmware mode)
+- Standard input-mode routing (no User Firmware mode dependency)
 
 ## MIDI Routing Model (Prototype)
 
@@ -78,7 +78,7 @@ CI and Pages builds use `bun install --frozen-lockfile`, so keep `bun.lock` comm
 ## Current Limitations
 
 - Prototype quality UI and preset system (not yet a full visual custom-mode editor)
-- Expressive remapping is partial (pitch bend, poly aftertouch forwarding, modwheel row are implemented; Y-axis/timbre mapping is still pending)
+- Expressive remapping is partial (pitch bend, poly aftertouch forwarding, modwheel row, and CC74 timbre forwarding are implemented)
 - Most thoroughly tested with 128-pad LinnStrument assumptions
 
 ## Next Steps (Planned)

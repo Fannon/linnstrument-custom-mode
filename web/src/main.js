@@ -18,39 +18,10 @@ import {
   mod,
   getPitchBend14,
   scalePitchBend14,
-  resolveUserFirmwarePadCoord as resolveUserFirmwarePadCoordCore,
+  resolveNoOverlapPadCoord as resolveNoOverlapPadCoordCore,
   shouldLightPlayablePad as shouldLightPlayablePadCore,
   getActiveLayoutRowOffset as getActiveLayoutRowOffsetCore,
 } from "./core-logic.js";
-import {
-  createUserFirmwareSlideState,
-  clearUserFirmwareSlideState,
-  recordUserFirmwareSlideStart,
-  consumeUserFirmwareSlideTarget,
-  shouldIgnoreUserFirmwareSlideSourceRelease,
-} from "./user-firmware-slide.js";
-import {
-  buildUserFirmwareSlideTransitionResult,
-  normalizeUserFirmwareSlideMode,
-} from "./user-firmware-slide-transition.js";
-import {
-  USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS,
-  resolveUserFirmwareControlStripCommand as resolveUserFirmwareControlStripCommandCore,
-} from "./user-firmware-control-strip.js";
-import {
-  normalizeUserFirmwareAxesByRow,
-} from "./user-firmware-settings.js";
-import {
-  decodeUserFirmwareYControlChange,
-  normalizeUserFirmwareTimbreCc,
-  normalizeUserFirmwareTimbreEnabled,
-} from "./user-firmware-y.js";
-import {
-  applyUserFirmwarePitchBendSmoothing14,
-  normalizeUserFirmwarePitchBendSmoothingEnabled,
-  normalizeUserFirmwarePitchBendSmoothingStep14,
-} from "./user-firmware-pitch-bend.js";
-import { resolveUserFirmwareDecimationMs } from "./user-firmware-decimation.js";
 import {
   getRoutedInputChannel,
   isMpeModeEnabled as isMpeModeEnabledCore,
@@ -61,18 +32,8 @@ import {
   allocateMpeVoice,
   clearMpeVoiceAllocator,
   createMpeVoiceAllocator,
-  moveMpeVoiceInputKey,
   releaseMpeVoice,
 } from "./mpe-voice-allocator.js";
-import {
-  createNrpnDecoderState,
-  clearNrpnDecoderState,
-  consumeUserFirmwareModeNotification,
-} from "./linnstrument-nrpn.js";
-import {
-  readLinnStrumentSwitchAssignments,
-  readLinnStrumentUserFirmwareModeEnabled,
-} from "./linnstrument-sync.js";
 const MODE_BY_ID = Object.fromEntries(MODES.map((mode) => [mode.id, mode]));
 
 const INSTRUMENT_COLORS = {
@@ -95,13 +56,6 @@ const INSTRUMENT_COLORS = {
 };
 
 const DEBUG_CONTROL_OVERLAY = true;
-const USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_1 = USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS.switch1;
-const USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_2 = USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS.switch2;
-const USER_FIRMWARE_CONTROL_STRIP_ROW_SPLIT = USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS.split;
-const USER_FIRMWARE_CONTROL_STRIP_ROW_EXIT = USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS.exit;
-const USER_FIRMWARE_X_PER_PAD_14 = 4265;
-const USER_FIRMWARE_PITCH_ANCHOR_DEADBAND_X14 = 16;
-const USER_FIRMWARE_PITCH_BEND_X_DIRECTION = -1;
 
 export const ext = {
   config: {},
@@ -124,13 +78,8 @@ export const ext = {
     modPressuresByPad: new Map(),
     modChannelsByPad: new Map(),
     controlOverlay: createControlOverlayState(),
-    userFirmwareXByPad: new Map(),
     lastPitchBend14ByChannel: new Map(),
-    userFirmwareSlide: createUserFirmwareSlideState(),
     mpeVoices: createMpeVoiceAllocator({ minChannel: 2, maxChannel: 15 }),
-    userFirmwareRuntimeActive: true,
-    nrpnDecoder: createNrpnDecoderState(),
-    userFirmwareSwitchAssignments: null,
     detectedChordName: "",
     instrumentPaintingEnabled: true,
     webPointerTouchById: new Map(),
@@ -162,7 +111,7 @@ async function init() {
   rebuildLayout();
 
   log.success("Prototype initialized.");
-  log.info("Using LinnStrument User Firmware Mode input decoding (rows=channels 1-8, playable columns=notes 1-N).");
+  log.info("Using LinnStrument standard input decoding.");
 }
 
 function bindUi() {
@@ -188,7 +137,7 @@ function bindUi() {
     refreshPortSelectors({ autoSelectInstrument: true });
     await connectMidiFromConfig();
     rebuildLayout({ paintInstrument: true });
-    log.warn("Configuration reset to defaults and LinnStrument User Firmware mode was re-applied.");
+    log.warn("Configuration reset to defaults.");
   });
 
   document.getElementById("resendPbRange")?.addEventListener("click", async () => {
@@ -277,34 +226,15 @@ function populateStateSelectors() {
 function populateUiFromConfig() {
   setValue("presetSelect", ext.config.presetId);
   setChecked(
-    "assumeDefaultUserFirmwareSwitchMapping",
-    ext.config.assumeDefaultUserFirmwareSwitchMapping ?? defaultConfig.assumeDefaultUserFirmwareSwitchMapping,
+    "scaleModeHighlightNonRootWhite",
+    Boolean(ext.config.scaleModeHighlightNonRootWhite ?? defaultConfig.scaleModeHighlightNonRootWhite),
   );
   setValue("stateTonicSelect", mod(ext.config.selectedKey ?? defaultConfig.selectedKey, 12));
   setValue("stateScaleSelect", ext.config.selectedModeId ?? defaultConfig.selectedModeId);
   setValue("layoutRowOffsetScale", ext.config.layoutRowOffsetScale);
   setValue("layoutRowOffsetAllNotes", ext.config.layoutRowOffsetAllNotes);
   setValue("pitchSlideSemitonesPerPad", ext.config.pitchSlideSemitonesPerPad);
-  setValue(
-    "userFirmwareSlideMode",
-    normalizeUserFirmwareSlideMode(ext.config.userFirmwareSlideMode ?? defaultConfig.userFirmwareSlideMode),
-  );
-  setChecked(
-    "userFirmwareTimbreEnabled",
-    normalizeUserFirmwareTimbreEnabled(
-      ext.config.userFirmwareTimbreEnabled ?? defaultConfig.userFirmwareTimbreEnabled,
-      defaultConfig.userFirmwareTimbreEnabled,
-    ),
-  );
-  setValue(
-    "userFirmwareTimbreCc",
-    normalizeUserFirmwareTimbreCc(ext.config.userFirmwareTimbreCc, defaultConfig.userFirmwareTimbreCc),
-  );
   setValue("outputPitchBendRangeSemitones", ext.config.outputPitchBendRangeSemitones);
-  setValue("userFirmwareDecimationMs", resolveUserFirmwareDecimationMs(
-    ext.config.userFirmwareDecimationMs,
-  ).effectiveMs);
-  applyUserFirmwareAxesByRowToUi(ext.config.userFirmwareAxesByRow);
   setValue("deviceStartNote", ext.config.deviceStartNote);
   setValue("deviceRowOffset", ext.config.deviceRowOffset);
 }
@@ -335,32 +265,16 @@ function readConfigFromUi() {
     getValue("pitchSlideSemitonesPerPad"),
     defaultConfig.pitchSlideSemitonesPerPad,
   );
-  const userFirmwareSlideMode = normalizeUserFirmwareSlideMode(
-    getValue("userFirmwareSlideMode"),
-    defaultConfig.userFirmwareSlideMode,
-  );
-  const userFirmwareTimbreEnabled = normalizeUserFirmwareTimbreEnabled(
-    getChecked("userFirmwareTimbreEnabled"),
-    ext.config.userFirmwareTimbreEnabled ?? defaultConfig.userFirmwareTimbreEnabled,
-  );
-  const userFirmwareTimbreCc = normalizeUserFirmwareTimbreCc(
-    getValue("userFirmwareTimbreCc"),
-    defaultConfig.userFirmwareTimbreCc,
-  );
   const outputPitchBendRangeSemitones = clampInt(
     getValue("outputPitchBendRangeSemitones"),
     1,
     96,
     defaultConfig.outputPitchBendRangeSemitones,
   );
-  const assumeDefaultUserFirmwareSwitchMappingRaw = getChecked("assumeDefaultUserFirmwareSwitchMapping");
-  const assumeDefaultUserFirmwareSwitchMapping = assumeDefaultUserFirmwareSwitchMappingRaw === null
-    ? Boolean(ext.config.assumeDefaultUserFirmwareSwitchMapping ?? defaultConfig.assumeDefaultUserFirmwareSwitchMapping)
-    : assumeDefaultUserFirmwareSwitchMappingRaw;
-  const userFirmwareDecimationMs = resolveUserFirmwareDecimationMs(
-    getValue("userFirmwareDecimationMs"),
-  ).effectiveMs;
-  const userFirmwareAxesByRow = readUserFirmwareAxesByRowFromUi(ext.config.userFirmwareAxesByRow);
+  const scaleModeHighlightNonRootWhiteRaw = getChecked("scaleModeHighlightNonRootWhite");
+  const scaleModeHighlightNonRootWhite = scaleModeHighlightNonRootWhiteRaw === null
+    ? Boolean(ext.config.scaleModeHighlightNonRootWhite ?? defaultConfig.scaleModeHighlightNonRootWhite)
+    : scaleModeHighlightNonRootWhiteRaw;
   const deviceStartNote = clampInt(getValue("deviceStartNote"), 0, 127, defaultConfig.deviceStartNote);
   const deviceRowOffset = clampInt(getValue("deviceRowOffset"), 0, 24, defaultConfig.deviceRowOffset);
 
@@ -372,14 +286,8 @@ function readConfigFromUi() {
     layoutRowOffsetScale,
     layoutRowOffsetAllNotes,
     pitchSlideSemitonesPerPad,
-    userFirmwareSlideMode,
-    userFirmwareSlideModeExplicit: true,
-    userFirmwareTimbreEnabled,
-    userFirmwareTimbreCc,
     outputPitchBendRangeSemitones,
-    assumeDefaultUserFirmwareSwitchMapping,
-    userFirmwareDecimationMs,
-    userFirmwareAxesByRow,
+    scaleModeHighlightNonRootWhite,
     deviceStartNote,
     deviceRowOffset,
     instrumentInputPort: getValue("instrumentInputPort") || "",
@@ -390,13 +298,8 @@ function readConfigFromUi() {
   setValue("layoutRowOffsetScale", ext.config.layoutRowOffsetScale);
   setValue("layoutRowOffsetAllNotes", ext.config.layoutRowOffsetAllNotes);
   setValue("pitchSlideSemitonesPerPad", ext.config.pitchSlideSemitonesPerPad);
-  setValue("userFirmwareSlideMode", normalizeUserFirmwareSlideMode(ext.config.userFirmwareSlideMode));
-  setChecked("userFirmwareTimbreEnabled", normalizeUserFirmwareTimbreEnabled(ext.config.userFirmwareTimbreEnabled));
-  setValue("userFirmwareTimbreCc", normalizeUserFirmwareTimbreCc(ext.config.userFirmwareTimbreCc));
   setValue("outputPitchBendRangeSemitones", ext.config.outputPitchBendRangeSemitones);
-  setChecked("assumeDefaultUserFirmwareSwitchMapping", ext.config.assumeDefaultUserFirmwareSwitchMapping);
-  setValue("userFirmwareDecimationMs", ext.config.userFirmwareDecimationMs);
-  applyUserFirmwareAxesByRowToUi(ext.config.userFirmwareAxesByRow);
+  setChecked("scaleModeHighlightNonRootWhite", Boolean(ext.config.scaleModeHighlightNonRootWhite));
   setValue("deviceStartNote", ext.config.deviceStartNote);
   setValue("deviceRowOffset", ext.config.deviceRowOffset);
   setValue("stateTonicSelect", mod(ext.config.selectedKey ?? defaultConfig.selectedKey, 12));
@@ -531,9 +434,6 @@ async function connectMidiFromConfig() {
     log.warn("No loop output selected. Notes will not be routed.");
   }
 
-  await configureLinnStrumentInputMode();
-  await verifyLinnStrumentUserFirmwareModeState();
-  await syncUserFirmwareSwitchAssignments();
   updateRoutingStatus();
 }
 
@@ -657,7 +557,7 @@ function createSurfaceTouchEventFromCoord(coord, velocity = 100) {
   }
 
   return {
-    noteNumber: x + 1,
+    noteNumber: x,
     channel: y + 1,
     velocity: clampInt(velocity, 0, 127, 100),
   };
@@ -669,10 +569,6 @@ function isControlOverlayActive() {
 
 function isControlOverlayTriggerCoord(coord) {
   return coord === CONTROL_OVERLAY_TRIGGER_COORD;
-}
-
-function isLinnStrumentUserFirmwareModeEnabled() {
-  return Boolean(ext.state.userFirmwareRuntimeActive);
 }
 
 function debugControlOverlay(message, data = null) {
@@ -831,32 +727,10 @@ function setMpeModeEnabled(enabled, options = {}) {
 }
 
 function handleNoteOn(msg) {
-  if (!isLinnStrumentUserFirmwareModeEnabled()) {
-    return;
-  }
-
-  const controlStripCommand = normalizeUserFirmwareControlStripCommandEvent(msg);
-  if (controlStripCommand) {
-    if (controlStripCommand.action === "octave-up") {
-      shiftOutputOctave(1);
-      return;
-    }
-    if (controlStripCommand.action === "octave-down") {
-      shiftOutputOctave(-1);
-      return;
-    }
-    if (controlStripCommand.action === "exit-user-firmware") {
-      void exitUserFirmwareModeFromControlStrip();
-      return;
-    }
-  }
-
   const overlayEvent = normalizeOverlayTriggerEvent(msg, { debug: true, phase: "noteon" });
   if (overlayEvent) {
     debugControlOverlay("noteon:routed-to-overlay", overlayEvent);
-    if (!overlayEvent.syntheticControlStrip) {
-      setPadHeld(overlayEvent.coord, true);
-    }
+    setPadHeld(overlayEvent.coord, true);
     handleControlOverlayTriggerPress(overlayEvent);
     return;
   }
@@ -922,20 +796,11 @@ function handleNoteOn(msg) {
         }
       }
 
-      if (isLinnStrumentUserFirmwareModeEnabled()) {
-        const transition = consumeUserFirmwareSlideTarget(ext.state.userFirmwareSlide, event.channel, event.noteNumber);
-        if (transition && handleUserFirmwareSlideTransition(event, pad, transition)) {
-          break;
-        }
-      }
-
       ext.state.routedNotesByPad.set(event.coord, {
         note: pad.outNote,
         channel: outputChannel,
         sourceChannel: event.channel,
-        inputColumn: event.noteNumber,
-        pitchAnchorX14: null,
-        pitchAnchorInputColumn: null,
+        sourceNoteNumber: event.noteNumber,
       });
       sendLoopPitchBend14(8192, outputChannel);
       sendLoopNoteOn(pad.outNote, event.velocity, outputChannel);
@@ -950,16 +815,10 @@ function handleNoteOn(msg) {
 }
 
 function handleNoteOff(msg) {
-  if (!isLinnStrumentUserFirmwareModeEnabled()) {
-    return;
-  }
-
   const overlayEvent = normalizeOverlayTriggerEvent(msg, { debug: true, phase: "noteoff" });
   if (overlayEvent) {
     debugControlOverlay("noteoff:routed-to-overlay", overlayEvent);
-    if (!overlayEvent.syntheticControlStrip) {
-      setPadHeld(overlayEvent.coord, false);
-    }
+    setPadHeld(overlayEvent.coord, false);
     handleControlOverlayTriggerRelease(overlayEvent);
     return;
   }
@@ -977,18 +836,6 @@ function handleNoteOff(msg) {
     return;
   }
 
-  if (
-    isLinnStrumentUserFirmwareModeEnabled()
-    && shouldIgnoreUserFirmwareSlideSourceRelease(
-      ext.state.userFirmwareSlide,
-      event.channel,
-      event.noteNumber,
-      event.velocity,
-    )
-  ) {
-    return;
-  }
-
   const routed = ext.state.routedNotesByPad.get(event.coord);
   if (routed) {
     finalizeRoutedNoteOff(event.coord, event.velocity);
@@ -1002,10 +849,6 @@ function handleNoteOff(msg) {
 }
 
 function handlePolyPressure(msg) {
-  if (!isLinnStrumentUserFirmwareModeEnabled()) {
-    return;
-  }
-
   if (normalizeOverlayTriggerEvent(msg)) {
     return;
   }
@@ -1037,10 +880,6 @@ function handlePolyPressure(msg) {
 }
 
 function handleChannelAftertouch(msg) {
-  if (!isLinnStrumentUserFirmwareModeEnabled()) {
-    return;
-  }
-
   const channel = getChannel(msg);
   const value = msg.rawValue ?? 0;
 
@@ -1088,80 +927,32 @@ function handleControlChange(msg) {
     return;
   }
 
-  const userFirmwareModeEnabled = consumeUserFirmwareModeNotification(ext.state.nrpnDecoder, event);
-  if (typeof userFirmwareModeEnabled === "boolean") {
-    applyLinnStrumentUserFirmwareModeNotification(userFirmwareModeEnabled);
-  }
-
-  if (!isLinnStrumentUserFirmwareModeEnabled()) {
+  if (event.controller === 1) {
+    sendLoopModWheel(event.value7);
     return;
   }
 
-  if (event.controller === 119) {
-    recordUserFirmwareSlideStart(ext.state.userFirmwareSlide, event.channel, event.value7);
+  if (event.controller !== 74) {
     return;
   }
 
-  const yMessage = decodeUserFirmwareYControlChange(event);
-  if (yMessage) {
-    maybeForwardUserFirmwareTimbreFromY(event.channel, yMessage.column, yMessage.value7);
+  if (!isMpeModeEnabled()) {
+    if (ext.state.routedNotesByPad.size > 0) {
+      sendLoopControlChange(74, event.value7, 1);
+    }
     return;
   }
 
-  const xMessage = decodeUserFirmwareXControlChange(event);
-  if (!xMessage) {
-    return;
-  }
-
-  const key = noteKey(event.channel, xMessage.column);
-  const cached = ext.state.userFirmwareXByPad.get(key) || {
-    msb: 0,
-    lsb: 0,
-    hasMsb: false,
-    hasLsb: false,
-    pendingMsb: false,
-    pendingLsb: false,
-  };
-  if (xMessage.part === "msb") {
-    cached.msb = xMessage.value7;
-    cached.hasMsb = true;
-    cached.pendingMsb = true;
-  } else {
-    cached.lsb = xMessage.value7;
-    cached.hasLsb = true;
-    cached.pendingLsb = true;
-  }
-  ext.state.userFirmwareXByPad.set(key, cached);
-  if (cached.hasMsb && cached.hasLsb && cached.pendingMsb && cached.pendingLsb) {
-    maybeForwardUserFirmwarePitchBendFromX(event.channel, xMessage.column, ((cached.msb & 0x7f) << 7) | (cached.lsb & 0x7f));
-    cached.pendingMsb = false;
-    cached.pendingLsb = false;
-  }
-}
-
-function applyLinnStrumentUserFirmwareModeNotification(enabled) {
-  const nextEnabled = Boolean(enabled);
-  if (ext.state.userFirmwareRuntimeActive === nextEnabled) {
-    return;
-  }
-
-  clearHeldState();
-  ext.state.userFirmwareRuntimeActive = nextEnabled;
-  ext.state.instrumentPaintingEnabled = nextEnabled;
-  rebuildLayout({ paintInstrument: nextEnabled });
-
-  log.warn(
-    nextEnabled
-      ? "Received LinnStrument mode notification (NRPN 245=1 on channel 9). User Firmware routing resumed."
-      : "Received LinnStrument mode notification (NRPN 245=0 on channel 9). This app only supports User Firmware mode; routing is paused until firmware mode is re-enabled.",
+  const outputChannels = listOutputChannelsForInputChannel(
+    Array.from(ext.state.routedNotesByPad.values()),
+    event.channel,
   );
+  outputChannels.forEach((outputChannel) => {
+    sendLoopControlChange(74, event.value7, outputChannel);
+  });
 }
 
 function handlePitchBend(msg) {
-  if (!isLinnStrumentUserFirmwareModeEnabled()) {
-    return;
-  }
-
   const channel = getChannel(msg);
   const value14 = getPitchBend14(msg);
   const scaled14 = scalePitchBendForConfig(value14);
@@ -1193,7 +984,7 @@ function findRoutedEntryBySourceKey(sourceKey) {
     return null;
   }
   for (const [coord, routed] of ext.state.routedNotesByPad.entries()) {
-    const key = noteKey(getRoutedInputChannel(routed), routed.inputColumn);
+    const key = noteKey(getRoutedInputChannel(routed), routed.sourceNoteNumber);
     if (key === sourceKey) {
       return { coord, routed };
     }
@@ -1219,215 +1010,8 @@ function extractRawControlChangeEvent(msg) {
   };
 }
 
-function decodeUserFirmwareXControlChange(event) {
-  if (!event || !Number.isFinite(event.controller)) {
-    return null;
-  }
-  if (event.controller >= 0 && event.controller <= 25) {
-    return { part: "msb", column: event.controller, value7: event.value7 };
-  }
-  if (event.controller >= 32 && event.controller <= 57) {
-    return { part: "lsb", column: event.controller - 32, value7: event.value7 };
-  }
-  return null;
-}
-
-function maybeForwardUserFirmwarePitchBendFromX(channel, inputColumn, x14) {
-  if (!Number.isFinite(channel) || !Number.isFinite(inputColumn) || !Number.isFinite(x14)) {
-    return;
-  }
-  if (!shouldForwardPitchBendOnChannel(channel)) {
-    return;
-  }
-  if (!isUserFirmwarePlayableInputColumnHeldOnChannel(channel, inputColumn)) {
-    return;
-  }
-  if (shouldSuppressNonMpePitchBend()) {
-    sendLoopPitchBend14(8192, 1);
-    return;
-  }
-
-  const routedEntry = findRoutedEntryByInputPosition(channel, inputColumn);
-  if (!routedEntry) {
-    return;
-  }
-
-  const bendRangeSemitones = clampInt(
-    ext.config.outputPitchBendRangeSemitones,
-    1,
-    96,
-    defaultConfig.outputPitchBendRangeSemitones,
-  );
-  const routed = routedEntry.routed;
-  if (!Number.isFinite(routed.pitchAnchorX14)) {
-    routed.pitchAnchorX14 = x14;
-    routed.pitchAnchorInputColumn = inputColumn;
-    sendLoopPitchBend14(8192, routed.channel);
-    return;
-  }
-  if (!Number.isFinite(routed.pitchAnchorInputColumn)) {
-    routed.pitchAnchorInputColumn = inputColumn;
-  }
-  if (Math.abs(x14 - routed.pitchAnchorX14) <= USER_FIRMWARE_PITCH_ANCHOR_DEADBAND_X14) {
-    sendLoopPitchBend14(8192, routed.channel);
-    return;
-  }
-  const semitonesPerPad = Number(ext.config.pitchSlideSemitonesPerPad) || 1;
-  // In user-firmware mode, X CC 0-25 / 32-57 is per-cell 14-bit position (0..4265), not full-surface position.
-  const absoluteDeltaFromAnchorPads = USER_FIRMWARE_PITCH_BEND_X_DIRECTION
-    * ((x14 - routed.pitchAnchorX14) / Math.max(USER_FIRMWARE_X_PER_PAD_14, 1));
-  const transitionedPads = inputColumn - routed.pitchAnchorInputColumn;
-  let localDeltaPads = absoluteDeltaFromAnchorPads - transitionedPads;
-  // Keep pure same-pad motion in vibrato territory, but keep cross-pad local offsets continuous.
-  if (transitionedPads === 0) {
-    localDeltaPads = Math.max(-0.49, Math.min(0.49, localDeltaPads));
-  } else {
-    localDeltaPads = Math.max(-0.5, Math.min(0.5, localDeltaPads));
-  }
-  const deltaPads = transitionedPads + localDeltaPads;
-  const deltaSemitones = deltaPads * semitonesPerPad;
-  const bend14 = clampInt(
-    Math.round(8192 + (deltaSemitones / bendRangeSemitones) * 8192),
-    0,
-    16383,
-    8192,
-  );
-  sendLoopPitchBend14(maybeSmoothUserFirmwarePitchBend14(bend14, routed.channel), routed.channel);
-}
-
 function shouldSuppressNonMpePitchBend() {
   return !isMpeModeEnabled() && ext.state.routedNotesByPad.size > 1;
-}
-
-function maybeSmoothUserFirmwarePitchBend14(bend14, channel) {
-  const enabled = normalizeUserFirmwarePitchBendSmoothingEnabled(
-    ext.config.userFirmwarePitchBendSmoothingEnabled,
-    defaultConfig.userFirmwarePitchBendSmoothingEnabled,
-  );
-  const maxStep14 = normalizeUserFirmwarePitchBendSmoothingStep14(
-    ext.config.userFirmwarePitchBendSmoothingStep14,
-    defaultConfig.userFirmwarePitchBendSmoothingStep14,
-  );
-  return applyUserFirmwarePitchBendSmoothing14(
-    bend14,
-    ext.state.lastPitchBend14ByChannel.get(channel),
-    { enabled, maxStep14 },
-  );
-}
-
-function maybeForwardUserFirmwareTimbreFromY(channel, inputColumn, value7) {
-  if (!Number.isFinite(channel) || !Number.isFinite(inputColumn)) {
-    return;
-  }
-  if (!normalizeUserFirmwareTimbreEnabled(ext.config.userFirmwareTimbreEnabled, defaultConfig.userFirmwareTimbreEnabled)) {
-    return;
-  }
-  if (!isUserFirmwarePlayableInputColumnHeldOnChannel(channel, inputColumn)) {
-    return;
-  }
-
-  const routedEntry = findRoutedEntryByInputPosition(channel, inputColumn);
-  if (!routedEntry) {
-    return;
-  }
-
-  const timbreCc = normalizeUserFirmwareTimbreCc(
-    ext.config.userFirmwareTimbreCc,
-    defaultConfig.userFirmwareTimbreCc,
-  );
-  sendLoopControlChange(timbreCc, clampInt(value7, 0, 127, 0), routedEntry.routed.channel);
-}
-
-function isUserFirmwarePlayableInputColumnHeldOnChannel(channel, inputColumn) {
-  if (!isLinnStrumentUserFirmwareModeEnabled()) {
-    return false;
-  }
-  if (!Number.isFinite(inputColumn) || inputColumn <= 0) {
-    return false;
-  }
-
-  for (const routed of ext.state.routedNotesByPad.values()) {
-    if (getRoutedInputChannel(routed) === channel && routed.inputColumn === inputColumn) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function handleUserFirmwareSlideTransition(event, pad, transition) {
-  if (!event || !pad || pad.role !== "play-note" || !transition) {
-    return false;
-  }
-
-  const sourceEntry = findRoutedEntryByInputPosition(event.channel, transition.sourceColumn);
-  if (!sourceEntry) {
-    return false;
-  }
-
-  const existingOnTargetCoord = ext.state.routedNotesByPad.get(event.coord);
-  if (existingOnTargetCoord && sourceEntry.coord !== event.coord) {
-    finalizeRoutedNoteOff(event.coord, 0);
-  }
-
-  const sourceRouted = sourceEntry.routed;
-  const transitionResult = buildUserFirmwareSlideTransitionResult({
-    mode: ext.config.userFirmwareSlideMode,
-    sourceRouted,
-    eventChannel: event.channel,
-    targetInputColumn: event.noteNumber,
-    targetOutNote: pad.outNote,
-    velocity: event.velocity,
-  });
-  if (!transitionResult) {
-    return false;
-  }
-
-  const sustainedNote = sourceRouted.note;
-  const fromInputKey = noteKey(getRoutedInputChannel(sourceRouted), transition.sourceColumn);
-  const toInputKey = noteKey(event.channel, event.noteNumber);
-
-  if (transitionResult.sendSpecEvents) {
-    sendLoopNoteOff(
-      transitionResult.noteOff.noteNumber,
-      transitionResult.noteOff.velocity,
-      transitionResult.noteOff.channel,
-    );
-  }
-
-  ext.state.routedNotesByPad.delete(sourceEntry.coord);
-  ext.state.routedNotesByPad.set(event.coord, transitionResult.nextRouted);
-  if (isMpeModeEnabled()) {
-    moveMpeVoiceInputKey(ext.state.mpeVoices, fromInputKey, toInputKey);
-  }
-  if (transitionResult.sendSpecEvents) {
-    sendLoopPitchBend14(8192, transitionResult.noteOn.channel);
-    sendLoopNoteOn(
-      transitionResult.noteOn.noteNumber,
-      transitionResult.noteOn.velocity,
-      transitionResult.noteOn.channel,
-    );
-  }
-
-  refreshDetectedChord();
-  refreshSameOutputNoteHighlights(transitionResult.nextRouted.note);
-  refreshInstrumentSameOutputNoteHighlights(transitionResult.nextRouted.note);
-  if (transitionResult.nextRouted.note !== sustainedNote) {
-    refreshSameOutputNoteHighlights(sustainedNote);
-    refreshInstrumentSameOutputNoteHighlights(sustainedNote);
-  }
-  return true;
-}
-
-function findRoutedEntryByInputPosition(channel, inputColumn) {
-  if (!Number.isFinite(channel) || !Number.isFinite(inputColumn)) {
-    return null;
-  }
-  for (const [coord, routed] of ext.state.routedNotesByPad.entries()) {
-    if (getRoutedInputChannel(routed) === channel && routed.inputColumn === inputColumn) {
-      return { coord, routed };
-    }
-  }
-  return null;
 }
 
 function finalizeRoutedNoteOff(coord, velocity) {
@@ -1437,7 +1021,7 @@ function finalizeRoutedNoteOff(coord, velocity) {
   }
 
   const sourceChannel = getRoutedInputChannel(routed);
-  const sourceKey = noteKey(sourceChannel, routed.inputColumn);
+  const sourceKey = noteKey(sourceChannel, routed.sourceNoteNumber);
 
   sendLoopNoteOff(routed.note, velocity, routed.channel);
   ext.state.routedNotesByPad.delete(coord);
@@ -1445,18 +1029,11 @@ function finalizeRoutedNoteOff(coord, velocity) {
     releaseMpeVoice(ext.state.mpeVoices, sourceKey);
   }
   refreshDetectedChord();
-  if (isLinnStrumentUserFirmwareModeEnabled()) {
-    if (Number.isFinite(routed.inputColumn)) {
-      if (Number.isFinite(sourceChannel)) {
-        ext.state.userFirmwareXByPad.delete(noteKey(sourceChannel, routed.inputColumn));
-      }
-    }
-    const remainingOnOutputChannel = Array.from(ext.state.routedNotesByPad.values()).find(
-      (entry) => entry.channel === routed.channel,
-    );
-    if (!remainingOnOutputChannel) {
-      sendLoopPitchBend14(8192, routed.channel);
-    }
+  const remainingOnOutputChannel = Array.from(ext.state.routedNotesByPad.values()).find(
+    (entry) => entry.channel === routed.channel,
+  );
+  if (!remainingOnOutputChannel) {
+    sendLoopPitchBend14(8192, routed.channel);
   }
   refreshSameOutputNoteHighlights(routed.note);
   refreshInstrumentSameOutputNoteHighlights(routed.note);
@@ -1491,7 +1068,6 @@ function normalizeOverlayTriggerEvent(msg, options = {}) {
   }
 
   const resolvedCoord = resolvePadCoord(raw.noteNumber, raw.channel);
-  const userFirmwareControlStripAction = resolveUserFirmwareControlStripCommand(raw.noteNumber, raw.channel);
   if (debug) {
     debugControlOverlay(`${phase}:probe`, {
       noteNumber: raw.noteNumber,
@@ -1499,7 +1075,6 @@ function normalizeOverlayTriggerEvent(msg, options = {}) {
       velocity: raw.velocity,
       resolvedCoord,
       isResolvedTriggerCoord: isControlOverlayTriggerCoord(resolvedCoord),
-      userFirmwareControlStripAction,
       triggerCoord: CONTROL_OVERLAY_TRIGGER_COORD,
     });
   }
@@ -1508,17 +1083,6 @@ function normalizeOverlayTriggerEvent(msg, options = {}) {
       debugControlOverlay(`${phase}:match`, { via: "resolvedCoord" });
     }
     return { ...raw, coord: CONTROL_OVERLAY_TRIGGER_COORD };
-  }
-
-  if (userFirmwareControlStripAction === "overlay") {
-    if (debug) {
-      debugControlOverlay(`${phase}:match`, { via: "userFirmwareControlStripSplit" });
-    }
-    return {
-      ...raw,
-      coord: CONTROL_OVERLAY_TRIGGER_COORD,
-      syntheticControlStrip: true,
-    };
   }
 
   return null;
@@ -1539,39 +1103,12 @@ function extractRawTouchEvent(msg) {
   };
 }
 
-function normalizeUserFirmwareControlStripCommandEvent(msg) {
-  const raw = extractRawTouchEvent(msg);
-  if (!raw) {
-    return null;
-  }
-  const action = resolveUserFirmwareControlStripCommand(raw.noteNumber, raw.channel);
-  if (!action || action === "overlay") {
-    return null;
-  }
-  return {
-    ...raw,
-    action,
-    syntheticControlStrip: true,
-  };
-}
-
-function resolveUserFirmwareControlStripCommand(noteNumber, channel) {
-  return resolveUserFirmwareControlStripCommandCore(noteNumber, channel, {
-    userFirmwareModeEnabled: isLinnStrumentUserFirmwareModeEnabled(),
-    assumeDefaultSwitchMapping: ext.config.assumeDefaultUserFirmwareSwitchMapping ?? defaultConfig.assumeDefaultUserFirmwareSwitchMapping,
-    rows: USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS,
-    switchAssignments: ext.state.userFirmwareSwitchAssignments,
-  });
-}
-
 function resolvePadCoord(noteNumber, channel) {
-  return resolveUserFirmwarePadCoord(noteNumber, channel);
-}
-
-function resolveUserFirmwarePadCoord(noteNumber, channel) {
-  return resolveUserFirmwarePadCoordCore(noteNumber, channel, {
+  return resolveNoOverlapPadCoordCore(noteNumber, channel, {
     columns: ext.config.linnStrumentSize / 8,
     rows: 8,
+    assumeRowChannels: true,
+    columnPhase: 0,
     perRowLowestChannel: 1,
     rowChannelOrderReversed: false,
   });
@@ -1828,11 +1365,8 @@ function allNotesOff() {
   }
   ext.state.activeLoopNotes.clear();
   ext.state.routedNotesByPad.clear();
-  ext.state.userFirmwareXByPad.clear();
   ext.state.lastPitchBend14ByChannel.clear();
   clearMpeVoiceAllocator(ext.state.mpeVoices);
-  clearUserFirmwareSlideState(ext.state.userFirmwareSlide);
-  clearNrpnDecoderState(ext.state.nrpnDecoder);
   ext.state.detectedChordName = "";
   updateChordStatusUi();
 }
@@ -1850,11 +1384,8 @@ function clearHeldState() {
   ext.state.modChannelsByPad.clear();
   ext.state.routedNotesByPad.clear();
   ext.state.activeLoopNotes.clear();
-  ext.state.userFirmwareXByPad.clear();
   ext.state.lastPitchBend14ByChannel.clear();
   clearMpeVoiceAllocator(ext.state.mpeVoices);
-  clearUserFirmwareSlideState(ext.state.userFirmwareSlide);
-  clearNrpnDecoderState(ext.state.nrpnDecoder);
   ext.state.detectedChordName = "";
   updateChordStatusUi();
 }
@@ -1866,10 +1397,7 @@ function hasTransientPerformanceState() {
     || ext.state.routedNotesByPad.size > 0
     || ext.state.activeLoopNotes.size > 0
     || ext.state.mpeVoices.byInputKey.size > 0
-    || ext.state.userFirmwareXByPad.size > 0
-    || ext.state.lastPitchBend14ByChannel.size > 0
-    || ext.state.userFirmwareSlide.pendingByChannel.size > 0
-    || ext.state.userFirmwareSlide.activeByChannel.size > 0;
+    || ext.state.lastPitchBend14ByChannel.size > 0;
 }
 
 function getGridMappingSignature() {
@@ -1906,14 +1434,11 @@ function updateStatusUi() {
 function updateRoutingStatus() {
   const inOk = Boolean(ext.midi.instrumentInput);
   const outOk = Boolean(ext.midi.loopOutput);
-  const ufOk = isLinnStrumentUserFirmwareModeEnabled();
   const status = !inOk
     ? "No LinnStrument input"
-    : !ufOk
-      ? "User Firmware mode off"
-      : outOk
-        ? "Ready"
-        : "No loop output";
+    : outOk
+      ? "Ready"
+      : "No loop output";
   setText("routingStatus", status);
 }
 
@@ -1942,8 +1467,6 @@ function paintInstrumentLayout() {
       highlightInstrumentXY(x, y, getInstrumentColorForMeta(meta, key));
     }
   }
-
-  paintInstrumentUserFirmwareControlStrip();
 }
 
 function getInstrumentColorForMeta(meta = {}, coord = null) {
@@ -1972,7 +1495,12 @@ function getInstrumentColorForMeta(meta = {}, coord = null) {
   if (meta.zone === "mpe") color = meta.selected ? INSTRUMENT_COLORS.mpeEnabled : INSTRUMENT_COLORS.mpeDisabled;
   if (meta.zone === "play") {
     if (!ext.config.allNotesEnabled) {
-      color = isTonicPlayablePad ? INSTRUMENT_COLORS.tonic : INSTRUMENT_COLORS.off;
+      const highlightScaleNonRootWhite = Boolean(
+        ext.config.scaleModeHighlightNonRootWhite ?? defaultConfig.scaleModeHighlightNonRootWhite,
+      );
+      color = isTonicPlayablePad
+        ? INSTRUMENT_COLORS.tonic
+        : (highlightScaleNonRootWhite ? INSTRUMENT_COLORS.play : INSTRUMENT_COLORS.off);
     } else {
       color = shouldLightPlayablePad(meta)
         ? (isTonicPlayablePad ? INSTRUMENT_COLORS.tonic : INSTRUMENT_COLORS.play)
@@ -2015,40 +1543,6 @@ function highlightInstrumentHardwareXY(x, y, color) {
   channel.sendControlChange(22, color);
 }
 
-function paintInstrumentUserFirmwareControlStrip() {
-  if (!isLinnStrumentUserFirmwareModeEnabled() || !ext.midi.instrumentOutput) {
-    return;
-  }
-
-  const activeOverlay = isControlOverlayActive();
-  for (let y = 0; y < 8; y++) {
-    const color = getUserFirmwareControlStripColor(y, activeOverlay);
-    highlightInstrumentHardwareXY(0, y, color);
-  }
-}
-
-function getUserFirmwareControlStripColor(y, activeOverlay = false) {
-  if (y === USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_1 - 1) {
-    const action = resolveUserFirmwareControlStripCommand(0, USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_1);
-    if (action === "octave-down" || action === "octave-up") {
-      return INSTRUMENT_COLORS.octave;
-    }
-  }
-  if (y === USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_2 - 1) {
-    const action = resolveUserFirmwareControlStripCommand(0, USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_2);
-    if (action === "octave-down" || action === "octave-up") {
-      return INSTRUMENT_COLORS.octave;
-    }
-  }
-  if (y === USER_FIRMWARE_CONTROL_STRIP_ROW_SPLIT - 1) {
-    return activeOverlay ? INSTRUMENT_COLORS.selected : INSTRUMENT_COLORS.overlayTrigger; // Split = Overlay
-  }
-  if (y === USER_FIRMWARE_CONTROL_STRIP_ROW_EXIT - 1) {
-    return INSTRUMENT_COLORS.selected; // Switch 7 = Exit UF
-  }
-  return INSTRUMENT_COLORS.off;
-}
-
 async function setLinnStrumentParamValue(paramNumber, value) {
   const output = ext.midi.instrumentOutput;
   if (!output) {
@@ -2056,130 +1550,6 @@ async function setLinnStrumentParamValue(paramNumber, value) {
   }
   output.sendNrpnValue(nrpn(paramNumber), nrpn(value), { channels: 1 });
   await sleep(24);
-}
-
-function sendLinnStrumentControlChange(cc, value, channel = 1) {
-  const out = ext.midi.instrumentOutput;
-  if (!out?.channels?.[channel]) {
-    throw new Error(`Missing LinnStrument output channel ${channel}`);
-  }
-  out.channels[channel].sendControlChange(cc, clampInt(value, 0, 127, 0));
-}
-
-async function configureLinnStrumentInputMode() {
-  await configureLinnStrumentUserFirmwareMode();
-}
-
-async function verifyLinnStrumentUserFirmwareModeState() {
-  if (!ext.midi.instrumentInput || !ext.midi.instrumentOutput) {
-    return;
-  }
-
-  try {
-    const userFirmwareEnabled = await readLinnStrumentUserFirmwareModeEnabled({
-      input: ext.midi.instrumentInput,
-      output: ext.midi.instrumentOutput,
-      timeoutMs: 450,
-      withTimeout,
-      nrpnEncoder: nrpn,
-    });
-    applyLinnStrumentUserFirmwareModeNotification(userFirmwareEnabled);
-    log.info(
-      `Verified LinnStrument mode via NRPN 245 query: User Firmware ${userFirmwareEnabled ? "enabled" : "disabled"}.`,
-    );
-  } catch (err) {
-    log.warn(`Could not verify LinnStrument User Firmware mode state: ${err?.message || err}`);
-  }
-}
-
-async function syncUserFirmwareSwitchAssignments() {
-  if (!ext.midi.instrumentInput || !ext.midi.instrumentOutput) {
-    ext.state.userFirmwareSwitchAssignments = null;
-    return;
-  }
-
-  try {
-    const assignments = await readLinnStrumentSwitchAssignments({
-      input: ext.midi.instrumentInput,
-      output: ext.midi.instrumentOutput,
-      timeoutMs: 450,
-      withTimeout,
-      nrpnEncoder: nrpn,
-    });
-    ext.state.userFirmwareSwitchAssignments = assignments;
-    paintInstrumentLayout();
-    log.info(
-      `Read LinnStrument switch assignments (NRPN 228/229): switch1=${assignments.switch1}, switch2=${assignments.switch2}.`,
-    );
-  } catch (err) {
-    ext.state.userFirmwareSwitchAssignments = null;
-    log.warn(`Could not query LinnStrument switch assignments: ${err?.message || err}`);
-  }
-}
-
-async function configureLinnStrumentUserFirmwareMode() {
-  if (!ext.midi.instrumentOutput) {
-    return;
-  }
-
-  try {
-    const decimation = resolveUserFirmwareDecimationMs(
-      ext.config.userFirmwareDecimationMs,
-    );
-    const decimationMs = decimation.effectiveMs;
-    const axesByRow = normalizeUserFirmwareAxesByRow(ext.config.userFirmwareAxesByRow);
-
-    ext.state.instrumentPaintingEnabled = true;
-    // User Firmware Mode gives fixed coordinates:
-    // - Rows are MIDI channels 1..8 (bottom row = 1)
-    // - Playable columns are note numbers 1..N (note 0 is the control-switch column)
-    await setLinnStrumentParamValue(245, 1); // User Firmware Mode = On
-
-    for (let channel = 1; channel <= 8; channel++) {
-      const rowAxes = axesByRow[channel - 1];
-      sendLinnStrumentControlChange(9, 1, channel);  // Slide mode on (emit deterministic row-slide transitions)
-      sendLinnStrumentControlChange(10, rowAxes.x ? 1 : 0, channel); // X data on/off (14-bit MSB/LSB CC pairs)
-      sendLinnStrumentControlChange(11, rowAxes.y ? 1 : 0, channel); // Y data on/off
-      sendLinnStrumentControlChange(12, rowAxes.z ? 1 : 0, channel); // Z data on/off (poly pressure)
-    }
-    sendLinnStrumentControlChange(13, decimationMs, 1); // Data decimation interval in milliseconds
-
-    ext.state.userFirmwareRuntimeActive = true;
-    ext.config.userFirmwareDecimationMs = decimationMs;
-    ext.config.userFirmwareAxesByRow = axesByRow;
-
-    populateUiFromConfig();
-    persistConfig(ext.config);
-    if (decimation.clampedToMinimum) {
-      log.warn(
-        `User Firmware decimation ${decimation.requestedMs}ms is below recommended minimum ${decimation.minimumMs}ms; using ${decimation.effectiveMs}ms.`,
-      );
-    }
-    log.success(`Configured LinnStrument User Firmware Mode (NRPN 245=1). Applied per-row X/Y/Z settings and decimation=${decimationMs}ms.`);
-  } catch (err) {
-    console.error(err);
-    ext.state.userFirmwareRuntimeActive = false;
-    log.warn(`Could not enable LinnStrument User Firmware Mode automatically: ${err?.message || err}`);
-  }
-}
-
-async function exitUserFirmwareModeFromControlStrip() {
-  if (!ext.midi.instrumentOutput) {
-    log.warn("Cannot re-apply User Firmware mode from control strip: no LinnStrument output selected.");
-    return false;
-  }
-
-  try {
-    clearHeldState();
-    await configureLinnStrumentUserFirmwareMode();
-    rebuildLayout({ paintInstrument: true });
-    log.warn("User Firmware exit command was intercepted; this app only supports User Firmware mode and re-applied its configuration.");
-    return true;
-  } catch (err) {
-    console.error(err);
-    log.warn(`Failed to re-apply User Firmware mode from control strip: ${err?.message || err}`);
-    return false;
-  }
 }
 
 function nrpn(value) {
@@ -2190,19 +1560,6 @@ function nrpn(value) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function withTimeout(ms, promise) {
-  const timeoutMs = Math.max(0, Number(ms) || 0);
-  let timer = null;
-  const timeoutPromise = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`Timed out after ${timeoutMs}ms`)), timeoutMs);
-  });
-  return Promise.race([promise, timeoutPromise]).finally(() => {
-    if (timer) {
-      clearTimeout(timer);
-    }
-  });
 }
 
 function shiftOutputOctave(deltaOctaves) {
@@ -2282,28 +1639,8 @@ function scalePitchBendForConfig(value14) {
 function shouldForwardPitchBendOnChannel(channel) {
   return shouldForwardPitchBendForInputChannel({
     inputChannel: channel,
-    assumeRowChannels: true,
-    rowIndexFromChannel,
-    rowHasPlayablePads,
     routedEntries: Array.from(ext.state.routedNotesByPad.values()),
   });
-}
-
-function rowIndexFromChannel(channel) {
-  if (!Number.isFinite(channel) || channel < 1 || channel > 8) {
-    return null;
-  }
-  return Math.trunc(channel) - 1;
-}
-
-function rowHasPlayablePads(row) {
-  const columns = ext.config.linnStrumentSize / 8;
-  for (let x = 0; x < columns; x++) {
-    if (ext.layout.padMap[coordKey(x, row)]?.role === "play-note") {
-      return true;
-    }
-  }
-  return false;
 }
 
 function setValue(id, value) {
@@ -2331,25 +1668,6 @@ function getChecked(id) {
     return null;
   }
   return Boolean(el.checked);
-}
-
-function applyUserFirmwareAxesByRowToUi(value) {
-  const axesByRow = normalizeUserFirmwareAxesByRow(value);
-  const firstRow = axesByRow[0] || { x: true, y: false, z: true };
-  setChecked("ufAxisXEnabled", firstRow.x);
-  setChecked("ufAxisYEnabled", firstRow.y);
-  setChecked("ufAxisZEnabled", firstRow.z);
-}
-
-function readUserFirmwareAxesByRowFromUi(currentValue) {
-  const fallback = normalizeUserFirmwareAxesByRow(currentValue);
-  const firstRow = fallback[0] || { x: true, y: false, z: true };
-  const allRows = {
-    x: getChecked("ufAxisXEnabled") ?? firstRow.x,
-    y: getChecked("ufAxisYEnabled") ?? firstRow.y,
-    z: getChecked("ufAxisZEnabled") ?? firstRow.z,
-  };
-  return fallback.map(() => ({ ...allRows }));
 }
 
 function setText(id, text) {

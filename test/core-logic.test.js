@@ -10,7 +10,6 @@ import {
   mod,
   parsePitchSlideSetting,
   resolveNoOverlapPadCoord,
-  resolveUserFirmwarePadCoord,
   rowIndexFromChannel,
   scaleNoteAt,
   scalePitchBend14,
@@ -69,21 +68,6 @@ describe("core-logic", () => {
     expect(resolveNoOverlapPadCoord(114, 8, options)).toBe("2-7");
     expect(resolveNoOverlapPadCoord(115, 8, options)).toBe("3-7");
     expect(resolveNoOverlapPadCoord(128, 8, options)).toBeNull();
-  });
-
-  test("resolveUserFirmwarePadCoord maps row channels and skips control-strip column", () => {
-    const options = {
-      columns: 16,
-      rows: 8,
-      perRowLowestChannel: 1,
-      rowChannelOrderReversed: false,
-    };
-
-    expect(resolveUserFirmwarePadCoord(0, 1, options)).toBeNull();   // control switch column
-    expect(resolveUserFirmwarePadCoord(1, 1, options)).toBe("0-0");  // bottom-left playable
-    expect(resolveUserFirmwarePadCoord(16, 1, options)).toBe("15-0"); // bottom-right playable
-    expect(resolveUserFirmwarePadCoord(16, 8, options)).toBe("15-7"); // top-right playable
-    expect(resolveUserFirmwarePadCoord(17, 1, options)).toBeNull();   // outside 16 playable columns
   });
 
   test("isPitchClassInMode checks membership against selected tonic", () => {

@@ -136,14 +136,6 @@
           <h2>Advanced Settings</h2>
           <div class="advanced-options-grid">
             <div class="advanced-option">
-              <label for="userFirmwareSlideMode" title="How slide transitions are interpreted: continuous keeps one sustained note, spec follows CC119 note on/off transitions.">Slide Mode</label>
-              <select id="userFirmwareSlideMode" class="form-select">
-                <option value="continuous" title="Sustain one source note and bend continuously across pads.">Continuous</option>
-                <option value="spec" title="Follow User Firmware spec transitions (target note on/off events).">Spec</option>
-              </select>
-            </div>
-
-            <div class="advanced-option">
               <label for="outputPitchBendRangeSemitones" title="Pitch bend range used on output channels (RPN 0).">Pitch Bend Range</label>
               <select id="outputPitchBendRangeSemitones" class="form-select">
                 <option value="1">±1 semitone</option>
@@ -155,35 +147,8 @@
             </div>
 
             <div class="advanced-option">
-              <label for="userFirmwareTimbreEnabled" title="Enable forwarding Y-axis data as MIDI CC on routed note channels.">Y Axis to CC</label>
-              <input id="userFirmwareTimbreEnabled" class="form-check-input mt-2" type="checkbox" checked>
-            </div>
-
-            <div class="advanced-option">
-              <label for="userFirmwareTimbreCc" title="MIDI CC number used for routed Y-axis output.">Y Axis CC Number</label>
-              <input id="userFirmwareTimbreCc" class="form-control" type="number" min="0" max="127" step="1">
-            </div>
-
-            <div class="advanced-option">
-              <label for="userFirmwareDecimationMs" title="MIDI update throttle in milliseconds. 0 disables decimation; 1-11 are normalized to 12ms.">UF Decimation (ms)</label>
-              <input id="userFirmwareDecimationMs" class="form-control" type="number" min="0" max="127" step="1">
-            </div>
-
-            <div class="advanced-option">
-              <label for="assumeDefaultUserFirmwareSwitchMapping" title="Assume default firmware switch rows when explicit switch assignment NRPN data is unavailable.">Assume UF Switch Mapping</label>
-              <input id="assumeDefaultUserFirmwareSwitchMapping" class="form-check-input mt-2" type="checkbox" checked>
-            </div>
-          </div>
-
-          <div class="mt-3">
-            <p class="muted mb-1">User Firmware Row Data (all rows)</p>
-            <div class="advanced-axis-grid">
-              <label for="ufAxisXEnabled">X (CC10)</label>
-              <input id="ufAxisXEnabled" class="form-check-input mt-1" type="checkbox" checked>
-              <label for="ufAxisYEnabled">Y (CC11)</label>
-              <input id="ufAxisYEnabled" class="form-check-input mt-1" type="checkbox">
-              <label for="ufAxisZEnabled">Z (CC12)</label>
-              <input id="ufAxisZEnabled" class="form-check-input mt-1" type="checkbox" checked>
+              <label for="scaleModeHighlightNonRootWhite" title="When Scale mode is active (not All Notes), show non-root scale pads in white on LinnStrument LEDs instead of turning them off.">Scale Non-Root White</label>
+              <input id="scaleModeHighlightNonRootWhite" class="form-check-input mt-2" type="checkbox">
             </div>
           </div>
 

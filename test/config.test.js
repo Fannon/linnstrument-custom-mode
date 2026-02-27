@@ -35,7 +35,7 @@ describe("config", () => {
     expect(initConfig()).toEqual(defaultConfig);
   });
 
-  test("initConfig drops legacy protocol fields and normalizes user-firmware rows", () => {
+  test("initConfig drops legacy protocol + firmware fields and keeps supported values", () => {
     const legacy = {
       linnStrumentInputProtocol: "standard",
       assumeRowChannels: false,
@@ -50,29 +50,15 @@ describe("config", () => {
 
     const config = initConfig();
     expect(config.layoutRowOffsetScale).toBe(7);
-    expect(config.userFirmwareSlideMode).toBe(defaultConfig.userFirmwareSlideMode);
-    expect(config.userFirmwareTimbreEnabled).toBe(false);
-    expect(config.userFirmwareTimbreCc).toBe(127);
-    expect(config.userFirmwareDecimationMs).toBe(12);
-    expect(config.userFirmwareAxesByRow[0]).toEqual({ x: false, y: true, z: false });
-    expect(config.userFirmwareAxesByRow[1]).toEqual({ x: true, y: false, z: true });
+    expect(config.selectedModeId).toBe(defaultConfig.selectedModeId);
+    expect(config.scaleModeHighlightNonRootWhite).toBe(defaultConfig.scaleModeHighlightNonRootWhite);
     expect("linnStrumentInputProtocol" in config).toBe(false);
     expect("assumeRowChannels" in config).toBe(false);
-  });
-
-  test("migrates legacy implicit spec slide mode to continuous but preserves explicit spec", () => {
-    globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      userFirmwareSlideMode: "spec",
-    }));
-    const migrated = initConfig();
-    expect(migrated.userFirmwareSlideMode).toBe("continuous");
-
-    globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify({
-      userFirmwareSlideMode: "spec",
-      userFirmwareSlideModeExplicit: true,
-    }));
-    const explicit = initConfig();
-    expect(explicit.userFirmwareSlideMode).toBe("spec");
+    expect("userFirmwareSlideMode" in config).toBe(false);
+    expect("userFirmwareTimbreEnabled" in config).toBe(false);
+    expect("userFirmwareTimbreCc" in config).toBe(false);
+    expect("userFirmwareDecimationMs" in config).toBe(false);
+    expect("userFirmwareAxesByRow" in config).toBe(false);
   });
 
   test("persistConfig and clearPersistedConfig update storage", () => {

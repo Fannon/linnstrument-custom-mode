@@ -200,7 +200,7 @@ test("captures executable coverage for main.js interactions", async ({ page }, t
     const input = window.__instrumentInput;
     input.emit("noteon", { note: { number: 4 }, channel: 3, rawVelocity: 99 });
     input.emit("keyaftertouch", { note: { number: 4 }, channel: 3, rawValue: 70 });
-    input.emit("controlchange", { controller: { number: 68 }, channel: 3, rawValue: 90 });
+    input.emit("controlchange", { controller: { number: 74 }, channel: 3, rawValue: 90 });
     input.emit("pitchbend", { channel: 3, dataBytes: [32, 96] });
     input.emit("noteoff", { note: { number: 4 }, channel: 3, rawVelocity: 0 });
   });
