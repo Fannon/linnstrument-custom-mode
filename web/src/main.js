@@ -125,6 +125,7 @@ export const ext = {
     userFirmwareSwitchAssignments: null,
     detectedChordName: "",
     instrumentPaintingEnabled: true,
+    webPointerTouchById: new Map(),
   },
   fn: {},
 };
@@ -222,6 +223,8 @@ function bindUi() {
     paintInstrumentLayout();
     refreshHeldCellClasses();
   }, 120));
+
+  bindSurfacePointerInput();
 }
 
 function populatePresetSelect() {
@@ -578,6 +581,81 @@ function buildLayoutDefinition() {
   return buildLayoutDefinitionCore(ext.config, defaultConfig, {
     controlOverlayActive: isControlOverlayActive(),
   });
+}
+
+function bindSurfacePointerInput() {
+  const surface = document.getElementById("visualization");
+  if (!surface) {
+    return;
+  }
+
+  surface.addEventListener("pointerdown", (event) => {
+    const coord = extractCoordFromSurfaceEvent(event);
+    if (!coord) {
+      return;
+    }
+    const touchEvent = createSurfaceTouchEventFromCoord(coord, 100);
+    if (!touchEvent) {
+      return;
+    }
+    ext.state.webPointerTouchById.set(event.pointerId, coord);
+    try {
+      event.target?.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Programmatic pointer events in tests may not have capturable pointer state.
+    }
+    handleNoteOn({
+      note: { number: touchEvent.noteNumber },
+      channel: touchEvent.channel,
+      rawVelocity: touchEvent.velocity,
+    });
+    event.preventDefault();
+  });
+
+  const releasePointer = (event) => {
+    const trackedCoord = ext.state.webPointerTouchById.get(event.pointerId);
+    const coord = trackedCoord || extractCoordFromSurfaceEvent(event);
+    if (!coord) {
+      return;
+    }
+    const touchEvent = createSurfaceTouchEventFromCoord(coord, 0);
+    ext.state.webPointerTouchById.delete(event.pointerId);
+    if (!touchEvent) {
+      return;
+    }
+    handleNoteOff({
+      note: { number: touchEvent.noteNumber },
+      channel: touchEvent.channel,
+      rawVelocity: 0,
+    });
+    event.preventDefault();
+  };
+
+  surface.addEventListener("pointerup", releasePointer);
+  surface.addEventListener("pointercancel", releasePointer);
+}
+
+function extractCoordFromSurfaceEvent(event) {
+  const cell = event?.target?.closest?.(".cell");
+  if (!cell?.id) {
+    return null;
+  }
+  return cell.id.replace(/^cell-/, "");
+}
+
+function createSurfaceTouchEventFromCoord(coord, velocity = 100) {
+  const [xStr, yStr] = String(coord).split("-");
+  const x = Number.parseInt(xStr, 10);
+  const y = Number.parseInt(yStr, 10);
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0) {
+    return null;
+  }
+
+  return {
+    noteNumber: x + 1,
+    channel: y + 1,
+    velocity: clampInt(velocity, 0, 127, 100),
+  };
 }
 
 function isControlOverlayActive() {
