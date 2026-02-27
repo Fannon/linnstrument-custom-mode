@@ -11,6 +11,16 @@ function cc(channel, controller, value7) {
 }
 
 describe("linnstrument-nrpn", () => {
+  test("returns null for invalid NRPN events and unsupported user-firmware values", () => {
+    const state = createNrpnDecoderState();
+    expect(consumeNrpnFromControlChange(state, null)).toBeNull();
+    expect(consumeNrpnFromControlChange(state, cc(1, 99, Number.NaN))).toBeNull();
+
+    consumeUserFirmwareModeNotification(state, cc(9, 99, 1));
+    consumeUserFirmwareModeNotification(state, cc(9, 98, 117));
+    expect(consumeUserFirmwareModeNotification(state, cc(9, 6, 2))).toBeNull();
+  });
+
   test("decodes NRPN parameter/value from CC 99/98/6", () => {
     const state = createNrpnDecoderState();
     expect(consumeNrpnFromControlChange(state, cc(9, 99, 1))).toBeNull();

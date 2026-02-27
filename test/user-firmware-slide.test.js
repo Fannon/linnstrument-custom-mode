@@ -8,6 +8,21 @@ import {
 } from "../web/src/user-firmware-slide.js";
 
 describe("user-firmware slide tracker", () => {
+  test("handles invalid/edge inputs defensively", () => {
+    expect(recordUserFirmwareSlideStart(null, 1, 2)).toBe(false);
+    const state = createUserFirmwareSlideState();
+    expect(recordUserFirmwareSlideStart(state, 1, Number.NaN)).toBe(false);
+    expect(consumeUserFirmwareSlideTarget(state, 1, 2)).toBeNull();
+    expect(shouldIgnoreUserFirmwareSlideSourceRelease(state, 1, 2, 0)).toBe(false);
+    clearUserFirmwareSlideState(null);
+  });
+
+  test("does not create transition when source equals target column", () => {
+    const state = createUserFirmwareSlideState();
+    recordUserFirmwareSlideStart(state, 4, 6, { nowMs: 100 });
+    expect(consumeUserFirmwareSlideTarget(state, 4, 6, { nowMs: 101 })).toBeNull();
+  });
+
   test("tracks CC119 start and consumes target note-on", () => {
     const state = createUserFirmwareSlideState();
     recordUserFirmwareSlideStart(state, 3, 7, { nowMs: 100 });

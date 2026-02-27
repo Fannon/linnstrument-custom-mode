@@ -1,5 +1,9 @@
 import { createDefaultUserFirmwareAxesByRow, normalizeUserFirmwareAxesByRow } from "./user-firmware-settings.js";
-import { normalizeUserFirmwareSlideMode, USER_FIRMWARE_SLIDE_MODE_SPEC } from "./user-firmware-slide-transition.js";
+import {
+  normalizeUserFirmwareSlideMode,
+  USER_FIRMWARE_SLIDE_MODE_CONTINUOUS,
+  USER_FIRMWARE_SLIDE_MODE_SPEC,
+} from "./user-firmware-slide-transition.js";
 import {
   normalizeUserFirmwareTimbreCc,
   normalizeUserFirmwareTimbreEnabled,
@@ -21,7 +25,8 @@ export const defaultConfig = {
   layoutRowOffsetScale: 4,
   layoutRowOffsetAllNotes: 5,
   pitchSlideSemitonesPerPad: 1,
-  userFirmwareSlideMode: USER_FIRMWARE_SLIDE_MODE_SPEC,
+  userFirmwareSlideMode: USER_FIRMWARE_SLIDE_MODE_CONTINUOUS,
+  userFirmwareSlideModeExplicit: false,
   userFirmwareTimbreEnabled: true,
   userFirmwareTimbreCc: USER_FIRMWARE_TIMBRE_CC_DEFAULT,
   outputPitchBendRangeSemitones: 2,
@@ -61,7 +66,8 @@ export function initConfig() {
       layoutRowOffsetAllNotes: Number.isFinite(Number(parsed?.layoutRowOffsetAllNotes))
         ? parsed.layoutRowOffsetAllNotes
         : defaultConfig.layoutRowOffsetAllNotes,
-      userFirmwareSlideMode: normalizeUserFirmwareSlideMode(parsed?.userFirmwareSlideMode),
+      userFirmwareSlideMode: resolveStoredUserFirmwareSlideMode(parsed),
+      userFirmwareSlideModeExplicit: Boolean(parsed?.userFirmwareSlideModeExplicit),
       userFirmwareTimbreEnabled: normalizeUserFirmwareTimbreEnabled(
         parsed?.userFirmwareTimbreEnabled,
         defaultConfig.userFirmwareTimbreEnabled,
@@ -87,4 +93,14 @@ export function persistConfig(config) {
 
 export function clearPersistedConfig() {
   localStorage.removeItem(STORAGE_KEY);
+}
+
+function resolveStoredUserFirmwareSlideMode(parsed) {
+  const rawMode = parsed?.userFirmwareSlideMode;
+  const explicit = Boolean(parsed?.userFirmwareSlideModeExplicit);
+  // Migrate legacy builds where "spec" was introduced as default without explicit user intent.
+  if (rawMode === USER_FIRMWARE_SLIDE_MODE_SPEC && !explicit) {
+    return USER_FIRMWARE_SLIDE_MODE_CONTINUOUS;
+  }
+  return normalizeUserFirmwareSlideMode(rawMode, defaultConfig.userFirmwareSlideMode);
 }

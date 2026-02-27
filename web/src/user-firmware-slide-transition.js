@@ -1,7 +1,7 @@
 export const USER_FIRMWARE_SLIDE_MODE_SPEC = "spec";
 export const USER_FIRMWARE_SLIDE_MODE_CONTINUOUS = "continuous";
 
-export function normalizeUserFirmwareSlideMode(value, fallback = USER_FIRMWARE_SLIDE_MODE_SPEC) {
+export function normalizeUserFirmwareSlideMode(value, fallback = USER_FIRMWARE_SLIDE_MODE_CONTINUOUS) {
   if (value === USER_FIRMWARE_SLIDE_MODE_SPEC || value === USER_FIRMWARE_SLIDE_MODE_CONTINUOUS) {
     return value;
   }
@@ -26,9 +26,10 @@ export function buildUserFirmwareSlideTransitionResult({
   }
 
   const normalizedMode = normalizeUserFirmwareSlideMode(mode);
+  const sendSpecEvents = normalizedMode === USER_FIRMWARE_SLIDE_MODE_SPEC;
   return {
     mode: normalizedMode,
-    sendSpecEvents: normalizedMode === USER_FIRMWARE_SLIDE_MODE_SPEC,
+    sendSpecEvents,
     noteOff: {
       noteNumber: sourceRouted.note,
       velocity: 0,
@@ -41,9 +42,11 @@ export function buildUserFirmwareSlideTransitionResult({
     },
     nextRouted: {
       ...sourceRouted,
-      note: targetOutNote,
+      // In continuous mode we keep sounding the original note and only bend it.
+      note: sendSpecEvents ? targetOutNote : sourceRouted.note,
       sourceChannel: eventChannel,
       inputColumn: targetInputColumn,
+      pitchAnchorX14: sendSpecEvents ? null : sourceRouted.pitchAnchorX14,
     },
   };
 }

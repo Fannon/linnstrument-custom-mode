@@ -152,6 +152,7 @@ test.beforeEach(async ({ page }) => {
     const instrumentInput = createInput("LinnStrument Input");
     const instrumentOutput = createOutput("LinnStrument Output", instrumentInput);
     const loopOutput = createOutput("loopMIDI Port", instrumentInput);
+    window.__instrumentInput = instrumentInput;
 
     window.WebMidi = {
       inputs: [instrumentInput],
@@ -223,4 +224,74 @@ test("mpe toggle changes routing channel for clicked notes", async ({ page }) =>
   );
   expect(nextPlay).toBeTruthy();
   expect(nextPlay.channel).toBe(1);
+});
+
+test("incoming user-firmware MIDI sequence routes note, pressure, bend and timbre", async ({ page }) => {
+  await tapPad(page, "#cell-0-0");
+  await tapPad(page, "#cell-13-1");
+  await expect.poll(async () => page.evaluate(() => Boolean(window.ext?.config?.mpeEnabled))).toBe(false);
+
+  await page.evaluate(() => {
+    window.__midiEvents.length = 0;
+    const input = window.__instrumentInput;
+    input.emit("noteon", { note: { number: 3 }, channel: 4, rawVelocity: 100 });
+    input.emit("keyaftertouch", { note: { number: 3 }, channel: 4, rawValue: 61 });
+    input.emit("pitchbend", { channel: 4, dataBytes: [0, 96] });
+    input.emit("controlchange", { controller: { number: 67 }, channel: 4, rawValue: 80 });
+    input.emit("noteoff", { note: { number: 3 }, channel: 4, rawVelocity: 0 });
+  });
+
+  const loopEvents = await page.evaluate(() =>
+    window.__midiEvents.filter((event) => event.output === "loopMIDI Port")
+  );
+  expect(loopEvents.some((event) => event.type === "playNote" && event.channel === 1)).toBe(true);
+  expect(loopEvents.some((event) => event.type === "stopNote" && event.channel === 1)).toBe(true);
+  expect(loopEvents.some((event) => event.type === "cc" && event.channel === 1 && event.controller === 74)).toBe(true);
+  expect(loopEvents.some((event) => event.type === "raw" && (event.data?.[0] & 0xf0) === 0xa0)).toBe(true); // poly aftertouch
+  expect(loopEvents.some((event) => event.type === "raw" && (event.data?.[0] & 0xf0) === 0xe0)).toBe(true); // pitch bend
+});
+
+test("continuous slide keeps one note and bends only after X moves from initial touch", async ({ page }) => {
+  await page.evaluate(() => {
+    window.__midiEvents.length = 0;
+    window.ext.config.userFirmwareSlideMode = "continuous";
+    const input = window.__instrumentInput;
+
+    input.emit("noteon", { note: { number: 3 }, channel: 4, rawVelocity: 100 });
+    input.emit("controlchange", { controller: { number: 3 }, channel: 4, rawValue: 30 }); // anchor capture
+    input.emit("controlchange", { controller: { number: 3 }, channel: 4, rawValue: 30 }); // still centered
+    input.emit("controlchange", { controller: { number: 3 }, channel: 4, rawValue: 45 }); // moved -> bend
+
+    input.emit("controlchange", { controller: { number: 119 }, channel: 4, rawValue: 3 });
+    input.emit("noteon", { note: { number: 4 }, channel: 4, rawVelocity: 100 });
+    input.emit("noteoff", { note: { number: 3 }, channel: 4, rawVelocity: 4 });
+
+    input.emit("controlchange", { controller: { number: 119 }, channel: 4, rawValue: 4 });
+    input.emit("noteon", { note: { number: 5 }, channel: 4, rawVelocity: 100 });
+    input.emit("noteoff", { note: { number: 4 }, channel: 4, rawVelocity: 5 });
+
+    input.emit("noteoff", { note: { number: 5 }, channel: 4, rawVelocity: 0 });
+  });
+
+  const analysis = await page.evaluate(() => {
+    const loopEvents = window.__midiEvents.filter((event) => event.output === "loopMIDI Port");
+    const playNotes = loopEvents.filter((event) => event.type === "playNote");
+    const stopNotes = loopEvents.filter((event) => event.type === "stopNote");
+    const pitchBends = loopEvents
+      .filter((event) => event.type === "raw" && (event.data?.[0] & 0xf0) === 0xe0)
+      .map((event) => ((event.data?.[2] || 0) << 7) | (event.data?.[1] || 0));
+    return {
+      playNoteCount: playNotes.length,
+      stopNoteCount: stopNotes.length,
+      firstStopMatchesFirstPlay: playNotes[0] && stopNotes[0]
+        ? playNotes[0].noteNumber === stopNotes[0].noteNumber && playNotes[0].channel === stopNotes[0].channel
+        : false,
+      pitchBends,
+    };
+  });
+
+  expect(analysis.playNoteCount).toBe(1);
+  expect(analysis.stopNoteCount).toBe(1);
+  expect(analysis.firstStopMatchesFirstPlay).toBe(true);
+  expect(analysis.pitchBends.some((value) => value !== 8192)).toBe(true);
 });

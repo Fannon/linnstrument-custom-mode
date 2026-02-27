@@ -60,6 +60,21 @@ describe("config", () => {
     expect("assumeRowChannels" in config).toBe(false);
   });
 
+  test("migrates legacy implicit spec slide mode to continuous but preserves explicit spec", () => {
+    globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      userFirmwareSlideMode: "spec",
+    }));
+    const migrated = initConfig();
+    expect(migrated.userFirmwareSlideMode).toBe("continuous");
+
+    globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      userFirmwareSlideMode: "spec",
+      userFirmwareSlideModeExplicit: true,
+    }));
+    const explicit = initConfig();
+    expect(explicit.userFirmwareSlideMode).toBe("spec");
+  });
+
   test("persistConfig and clearPersistedConfig update storage", () => {
     const next = { ...defaultConfig, selectedKey: 7 };
     persistConfig(next);

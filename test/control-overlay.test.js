@@ -8,6 +8,18 @@ import {
 } from "../web/src/control-overlay.js";
 
 describe("control-overlay state machine", () => {
+  test("handles missing state and idle release safely", () => {
+    expect(isControlOverlayActive(null)).toBe(false);
+    const missingPress = pressControlOverlay(null, { nowMs: 1, touchId: "x" });
+    expect(missingPress.ignored).toBe(true);
+    const missingRelease = releaseControlOverlay(null, { nowMs: 2, touchId: "x" });
+    expect(missingRelease.ignored).toBe(true);
+
+    const state = createControlOverlayState();
+    const idleRelease = releaseControlOverlay(state, { nowMs: 5, touchId: "x" });
+    expect(idleRelease.ignored).toBe(true);
+  });
+
   test("quick tap toggles overlay on", () => {
     const state = createControlOverlayState();
 

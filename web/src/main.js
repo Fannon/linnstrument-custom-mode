@@ -366,6 +366,7 @@ function readConfigFromUi() {
     layoutRowOffsetAllNotes,
     pitchSlideSemitonesPerPad,
     userFirmwareSlideMode,
+    userFirmwareSlideModeExplicit: true,
     userFirmwareTimbreEnabled,
     userFirmwareTimbreCc,
     outputPitchBendRangeSemitones,
@@ -926,6 +927,7 @@ function handleNoteOn(msg) {
         channel: outputChannel,
         sourceChannel: event.channel,
         inputColumn: event.noteNumber,
+        pitchAnchorX14: null,
       });
       sendLoopPitchBend14(8192, outputChannel);
       sendLoopNoteOn(pad.outNote, event.velocity, outputChannel);
@@ -1226,11 +1228,16 @@ function maybeForwardUserFirmwarePitchBendFromX(channel, inputColumn, x14) {
     96,
     defaultConfig.outputPitchBendRangeSemitones,
   );
+  const routed = routedEntry.routed;
+  if (!Number.isFinite(routed.pitchAnchorX14)) {
+    routed.pitchAnchorX14 = x14;
+    sendLoopPitchBend14(8192, routed.channel);
+    return;
+  }
   const semitonesPerPad = Number(ext.config.pitchSlideSemitonesPerPad) || 1;
   const hardwareColumns = (ext.config.linnStrumentSize / 8) + 1; // +1 control-strip column in user firmware mode
   const padWidthX = USER_FIRMWARE_X_MAX_14 / Math.max(hardwareColumns, 1);
-  const anchorCenterX = ((routedEntry.routed.inputColumn + 0.5) * USER_FIRMWARE_X_MAX_14) / Math.max(hardwareColumns, 1);
-  const deltaPads = (x14 - anchorCenterX) / Math.max(padWidthX, 1);
+  const deltaPads = (x14 - routed.pitchAnchorX14) / Math.max(padWidthX, 1);
   const deltaSemitones = deltaPads * semitonesPerPad;
   const bend14 = clampInt(
     Math.round(8192 + (deltaSemitones / bendRangeSemitones) * 8192),
@@ -1238,7 +1245,7 @@ function maybeForwardUserFirmwarePitchBendFromX(channel, inputColumn, x14) {
     16383,
     8192,
   );
-  sendLoopPitchBend14(bend14, routedEntry.routed.channel);
+  sendLoopPitchBend14(bend14, routed.channel);
 }
 
 function maybeForwardUserFirmwareTimbreFromY(channel, inputColumn, value7) {
@@ -1326,11 +1333,19 @@ function handleUserFirmwareSlideTransition(event, pad, transition) {
     moveMpeVoiceInputKey(ext.state.mpeVoices, fromInputKey, toInputKey);
   }
   if (transitionResult.sendSpecEvents) {
+    sendLoopPitchBend14(8192, transitionResult.noteOn.channel);
     sendLoopNoteOn(
       transitionResult.noteOn.noteNumber,
       transitionResult.noteOn.velocity,
       transitionResult.noteOn.channel,
     );
+  } else {
+    const targetKey = noteKey(event.channel, event.noteNumber);
+    const cachedTargetX = ext.state.userFirmwareXByPad.get(targetKey);
+    if (cachedTargetX && Number.isFinite(cachedTargetX.msb) && Number.isFinite(cachedTargetX.lsb)) {
+      const x14 = ((cachedTargetX.msb & 0x7f) << 7) | (cachedTargetX.lsb & 0x7f);
+      maybeForwardUserFirmwarePitchBendFromX(event.channel, event.noteNumber, x14);
+    }
   }
 
   refreshDetectedChord();

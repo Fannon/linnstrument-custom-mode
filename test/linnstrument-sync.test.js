@@ -42,6 +42,61 @@ function identityTimeout(_ms, promise) {
 }
 
 describe("linnstrument-sync", () => {
+  test("readLinnStrumentParamValue validates required arguments", async () => {
+    await expect(readLinnStrumentParamValue({
+      output: { sendNrpnValue() {} },
+      withTimeout: identityTimeout,
+      nrpnEncoder: (value) => [value >> 7, value & 0x7f],
+    })).rejects.toThrow("Missing LinnStrument input/output");
+
+    await expect(readLinnStrumentParamValue({
+      inputChannel: createFakeInputChannel(),
+      output: { sendNrpnValue() {} },
+      nrpnEncoder: (value) => [value >> 7, value & 0x7f],
+    })).rejects.toThrow("Missing timeout wrapper");
+
+    await expect(readLinnStrumentParamValue({
+      inputChannel: createFakeInputChannel(),
+      output: { sendNrpnValue() {} },
+      withTimeout: identityTimeout,
+    })).rejects.toThrow("Missing NRPN encoder");
+  });
+
+  test("addChannelListener returns noop unsubscribe for invalid channel", () => {
+    const unsubscribe = addChannelListener(null, "nrpn", () => {});
+    expect(typeof unsubscribe).toBe("function");
+    unsubscribe();
+  });
+
+  test("addChannelListener supports listeners with destroy() and removeListener fallback", () => {
+    let destroyed = false;
+    const channelWithDestroy = {
+      addListener() {
+        return {
+          destroy() {
+            destroyed = true;
+          },
+        };
+      },
+    };
+    const unsubDestroy = addChannelListener(channelWithDestroy, "nrpn", () => {});
+    unsubDestroy();
+    expect(destroyed).toBe(true);
+
+    let removed = false;
+    const channelFallback = {
+      addListener() {
+        return {};
+      },
+      removeListener() {
+        removed = true;
+      },
+    };
+    const unsubFallback = addChannelListener(channelFallback, "nrpn", () => {});
+    unsubFallback();
+    expect(removed).toBe(true);
+  });
+
   test("addChannelListener returns a working unsubscribe", () => {
     const channel = createFakeInputChannel();
     const handler = () => {};

@@ -7,10 +7,10 @@ import {
 } from "../web/src/user-firmware-slide-transition.js";
 
 describe("user-firmware slide transition", () => {
-  test("normalizes mode with spec default", () => {
+  test("normalizes mode with continuous default", () => {
     expect(normalizeUserFirmwareSlideMode(USER_FIRMWARE_SLIDE_MODE_SPEC)).toBe(USER_FIRMWARE_SLIDE_MODE_SPEC);
     expect(normalizeUserFirmwareSlideMode(USER_FIRMWARE_SLIDE_MODE_CONTINUOUS)).toBe(USER_FIRMWARE_SLIDE_MODE_CONTINUOUS);
-    expect(normalizeUserFirmwareSlideMode("invalid")).toBe(USER_FIRMWARE_SLIDE_MODE_SPEC);
+    expect(normalizeUserFirmwareSlideMode("invalid")).toBe(USER_FIRMWARE_SLIDE_MODE_CONTINUOUS);
   });
 
   test("builds spec transition with note-off/note-on events", () => {
@@ -31,13 +31,14 @@ describe("user-firmware slide transition", () => {
       channel: 5,
       sourceChannel: 3,
       inputColumn: 10,
+      pitchAnchorX14: null,
     });
   });
 
   test("builds continuous transition without note retrigger events", () => {
     const result = buildUserFirmwareSlideTransitionResult({
       mode: USER_FIRMWARE_SLIDE_MODE_CONTINUOUS,
-      sourceRouted: { note: 60, channel: 7, sourceChannel: 2, inputColumn: 4 },
+      sourceRouted: { note: 60, channel: 7, sourceChannel: 2, inputColumn: 4, pitchAnchorX14: 1234 },
       eventChannel: 2,
       targetInputColumn: 5,
       targetOutNote: 63,
@@ -47,6 +48,12 @@ describe("user-firmware slide transition", () => {
     expect(result?.sendSpecEvents).toBe(false);
     expect(result?.noteOff).toEqual({ noteNumber: 60, velocity: 0, channel: 7 });
     expect(result?.noteOn).toEqual({ noteNumber: 63, velocity: 64, channel: 7 });
-    expect(result?.nextRouted?.note).toBe(63);
+    expect(result?.nextRouted).toEqual({
+      note: 60,
+      channel: 7,
+      sourceChannel: 2,
+      inputColumn: 5,
+      pitchAnchorX14: 1234,
+    });
   });
 });
