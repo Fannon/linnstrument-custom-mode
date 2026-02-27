@@ -40,6 +40,7 @@ import {
 import {
   getRoutedInputChannel,
   isMpeModeEnabled as isMpeModeEnabledCore,
+  listOutputChannelsForInputChannel,
   shouldForwardPitchBendForInputChannel,
 } from "./mpe-routing.js";
 import {
@@ -892,11 +893,12 @@ function handlePolyPressure(msg) {
   if (pad.role === "play-note") {
     const routed = ext.state.routedNotesByPad.get(event.coord);
     const outputChannel = routed?.channel ?? 1;
-    sendLoopPolyAftertouch(
-      pad.outNote,
-      msg.rawValue ?? 0,
-      outputChannel,
-    );
+    const value = msg.rawValue ?? 0;
+    if (isMpeModeEnabled()) {
+      sendLoopChannelAftertouch(value, outputChannel);
+    } else {
+      sendLoopPolyAftertouch(pad.outNote, value, outputChannel);
+    }
   }
 }
 
@@ -924,15 +926,25 @@ function handleChannelAftertouch(msg) {
     .filter((entry) => getRoutedInputChannel(entry) === channel);
 
   if (heldPlayableEntriesOnChannel.length > 0) {
-    const uniqueNoteKeys = new Set();
-    heldPlayableEntriesOnChannel.forEach((entry) => {
-      const key = noteKey(entry.channel, entry.note);
-      if (uniqueNoteKeys.has(key)) {
-        return;
-      }
-      uniqueNoteKeys.add(key);
-      sendLoopPolyAftertouch(entry.note, value, entry.channel);
-    });
+    if (isMpeModeEnabled()) {
+      const outputChannels = listOutputChannelsForInputChannel(
+        Array.from(ext.state.routedNotesByPad.values()),
+        channel,
+      );
+      outputChannels.forEach((outputChannel) => {
+        sendLoopChannelAftertouch(value, outputChannel);
+      });
+    } else {
+      const uniqueNoteKeys = new Set();
+      heldPlayableEntriesOnChannel.forEach((entry) => {
+        const key = noteKey(entry.channel, entry.note);
+        if (uniqueNoteKeys.has(key)) {
+          return;
+        }
+        uniqueNoteKeys.add(key);
+        sendLoopPolyAftertouch(entry.note, value, entry.channel);
+      });
+    }
   }
 }
 
@@ -1009,10 +1021,9 @@ function handlePitchBend(msg) {
     return;
   }
 
-  const outputChannels = new Set(
-    Array.from(ext.state.routedNotesByPad.values())
-      .filter((entry) => getRoutedInputChannel(entry) === channel)
-      .map((entry) => entry.channel),
+  const outputChannels = listOutputChannelsForInputChannel(
+    Array.from(ext.state.routedNotesByPad.values()),
+    channel,
   );
   outputChannels.forEach((outputChannel) => {
     sendLoopPitchBend14(scaled14, outputChannel);

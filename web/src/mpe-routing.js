@@ -54,3 +54,16 @@ export function shouldForwardPitchBendForInputChannel({
   }
   return false;
 }
+
+export function listOutputChannelsForInputChannel(routedEntries = [], inputChannel) {
+  if (!Number.isFinite(inputChannel)) {
+    return [];
+  }
+  const channels = new Set();
+  for (const entry of routedEntries) {
+    if (getRoutedInputChannel(entry) === inputChannel && Number.isFinite(entry?.channel)) {
+      channels.add(entry.channel);
+    }
+  }
+  return Array.from(channels.values());
+}

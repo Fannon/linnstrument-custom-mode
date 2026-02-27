@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   getRoutedInputChannel,
   isMpeModeEnabled,
+  listOutputChannelsForInputChannel,
   resolveOutputChannel,
   shouldForwardPitchBendForInputChannel,
 } from "../web/src/mpe-routing.js";
@@ -58,5 +59,15 @@ describe("mpe-routing", () => {
       routedEntries: [{ channel: 1, sourceChannel: 1, note: 60 }],
     });
     expect(forwarded).toBe(false);
+  });
+
+  test("lists unique output channels for a specific input channel", () => {
+    const channels = listOutputChannelsForInputChannel([
+      { sourceChannel: 1, channel: 2 },
+      { sourceChannel: 1, channel: 3 },
+      { sourceChannel: 1, channel: 3 },
+      { sourceChannel: 2, channel: 4 },
+    ], 1);
+    expect(channels.sort((a, b) => a - b)).toEqual([2, 3]);
   });
 });
