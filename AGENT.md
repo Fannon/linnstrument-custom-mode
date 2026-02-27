@@ -23,7 +23,29 @@ The current app is preset-based and centered on a scale-constrained playing layo
 - `web/src/config.js`: persisted settings defaults
 - `web/src/log.js`: UI log helper
 - `docs/custom-mode-web-app-design.md`: design notes and roadmap
-- `tmp/midi.md`: LinnStrument MIDI reference used for CC/NRPN behavior
+
+## Reference Sources In `tmp/` (Use These First)
+
+When behavior is unclear, prefer these local sources before guessing:
+
+- `tmp/linnstrument-firmware/user_firmware_mode.md`
+  - Canonical user-firmware protocol (rows/channels, columns/notes, slide mode, CC119 semantics, NRPN245 behavior)
+- `tmp/linnstrument-firmware/midi.md`
+  - Canonical CC/NRPN list (including CC20/21/22 LED control and NRPN parameters)
+- `tmp/MIDI MPE Spec.md`
+  - MPE reference for channel roles and expression routing
+- `tmp/linnstrument-firmware/ls_handleTouches.ino`
+  - Touch/slide transfer behavior in real firmware, including user-firmware note/pressure handling
+- `tmp/linnstrument-firmware/ls_midi.ino`
+  - MIDI input handling implementation for CC/NRPN and LED commands
+- `tmp/linnstrument-firmware/ls_settings.ino`
+  - User Firmware mode state transitions and outbound NRPN245 notifications
+- `tmp/linnstrument-firmware/ls_noteTouchMapping.ino`
+  - Note/voice ordering and touch-note mapping model used in firmware
+
+Additional inspiration (not canonical for LinnStrument firmware behavior):
+
+- `tmp/midimech/`: alternative controller app/layout ideas
 
 ## MIDI Assumptions
 
@@ -46,9 +68,15 @@ The project is mostly consistent with the new prototype direction:
 
 - Default to editing the active files listed above.
 - Prefer Bun tooling and `bun.lock`; do not reintroduce `package-lock.json` unless explicitly requested.
-- Verify MIDI behavior changes against `tmp/midi.md` before changing routing/sync logic.
+- Verify MIDI behavior changes against `tmp/linnstrument-firmware/user_firmware_mode.md` and `tmp/linnstrument-firmware/midi.md` before changing routing/sync logic.
+- For protocol edge cases, verify against firmware source (`tmp/linnstrument-firmware/*.ino`), not only markdown summaries.
 - Keep `web/index.html` and `bin/updateLibs.sh` aligned when changing frontend dependencies.
 - Avoid reintroducing recorder/statistics/JZZ-SMF code unless explicitly requested.
+
+## Codex CLI Instruction File Note
+
+- Codex CLI discovers `AGENTS.md` by default (plural), not `AGENT.md`.
+- Keep a top-level `AGENTS.md` file in sync with this file so repo instructions are automatically applied.
 
 ## Verify Loop (Required)
 
