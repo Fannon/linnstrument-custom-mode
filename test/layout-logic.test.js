@@ -39,7 +39,7 @@ describe("layout-logic buildLayoutDefinition", () => {
     expect(cellMeta["2-0"].subLabel).toBe("");
   });
 
-  test("creates tonic row with octave controls and disabled gaps when control overlay is active", () => {
+  test("creates tonic row with MPE and octave controls when control overlay is active", () => {
     const { cellMeta, padMap } = buildWithOverlay({ selectedKey: 1 }, { controlOverlayActive: true });
 
     expect(cellMeta["0-1"].zone).toBe("key");
@@ -51,10 +51,11 @@ describe("layout-logic buildLayoutDefinition", () => {
     expect(cellMeta["1-1"].accidental).toBe(true);
     expect(cellMeta["1-1"].selected).toBe(true);
 
-    expect(cellMeta["12-1"].disabled).toBe(true);
-    expect(cellMeta["12-1"].zone).toBe("disabled");
+    expect(cellMeta["12-1"].disabled).toBe(false);
+    expect(cellMeta["12-1"].zone).toBe("mode");
+    expect(cellMeta["12-1"].label).toBe("MPE");
+    expect(padMap["12-1"].role).toBe("toggle-mpe");
     expect(cellMeta["13-1"].disabled).toBe(true);
-    expect(padMap["12-1"].role).toBe("disabled");
     expect(padMap["13-1"].role).toBe("disabled");
 
     expect(cellMeta["14-1"].zone).toBe("octave");
@@ -68,7 +69,7 @@ describe("layout-logic buildLayoutDefinition", () => {
 
   test("creates mode row plus All-notes toggle on last pad when control overlay is active", () => {
     const { cellMeta, padMap } = buildWithOverlay(
-      { selectedModeId: "dorian", allNotesEnabled: true },
+      { selectedModeId: "dorian", allNotesEnabled: true, mpeEnabled: true },
       { controlOverlayActive: true },
     );
 
@@ -82,11 +83,6 @@ describe("layout-logic buildLayoutDefinition", () => {
     expect(cellMeta["15-2"].label).toBe("All");
     expect(cellMeta["15-2"].selected).toBe(true);
     expect(padMap["15-2"].role).toBe("toggle-all-notes");
-
-    if (MODES.length < 15) {
-      expect(cellMeta["14-2"].zone).toBe("disabled");
-      expect(padMap["14-2"].role).toBe("disabled");
-    }
   });
 
   test("overlay-off layout uses rows above mod row as playable surface", () => {
@@ -163,5 +159,16 @@ describe("layout-logic buildLayoutDefinition", () => {
     expect(padMap["0-4"].outNote).toBe(overlayOff.padMap["0-4"].outNote);
     expect(padMap["0-4"].outNote).toBe(51); // row offset still uses all-notes offset (5)
     expect(cellMeta["0-4"].label).toBe("D#");
+  });
+
+  test("MPE toggle reflects disabled state in control overlay", () => {
+    const { cellMeta, padMap } = buildWithOverlay(
+      { mpeEnabled: false },
+      { controlOverlayActive: true },
+    );
+    expect(cellMeta["12-1"].zone).toBe("mode");
+    expect(cellMeta["12-1"].label).toBe("MPE");
+    expect(cellMeta["12-1"].selected).toBe(false);
+    expect(padMap["12-1"].role).toBe("toggle-mpe");
   });
 });

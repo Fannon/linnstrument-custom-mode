@@ -62,6 +62,13 @@ export function buildLayoutDefinition(config, defaults = {}, uiState = {}) {
           meta.accidental = isAccidentalPc(x);
           meta.selected = mod12(config?.selectedKey ?? 0) === x;
           pad = { role: "key-select", keyPc: x };
+        } else if (x === 12) {
+          meta.zone = "mode";
+          meta.label = "MPE";
+          meta.subLabel = "route";
+          meta.disabled = false;
+          meta.selected = Boolean(config?.mpeEnabled ?? defaults?.mpeEnabled ?? true);
+          pad = { role: "toggle-mpe" };
         } else if (x === columns - 2) {
           meta.zone = "octave";
           meta.label = "Oct-";

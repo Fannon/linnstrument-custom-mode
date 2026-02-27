@@ -42,6 +42,12 @@ import {
   normalizeUserFirmwareAxesByRow,
 } from "./user-firmware-settings.js";
 import {
+  getRoutedInputChannel,
+  isMpeModeEnabled as isMpeModeEnabledCore,
+  resolveOutputChannel,
+  shouldForwardPitchBendForInputChannel,
+} from "./mpe-routing.js";
+import {
   createNrpnDecoderState,
   clearNrpnDecoderState,
   consumeUserFirmwareModeNotification,
@@ -691,6 +697,28 @@ function toggleAllNotesMode(options = {}) {
   return setAllNotesMode(!ext.config.allNotesEnabled, options);
 }
 
+function setMpeModeEnabled(enabled, options = {}) {
+  const {
+    trigger = "mpe",
+    flashCoord = null,
+  } = options;
+  const nextValue = Boolean(enabled);
+  if (isMpeModeEnabled() === nextValue) {
+    return nextValue;
+  }
+
+  clearHeldState();
+  ext.config.mpeEnabled = nextValue;
+  persistConfig(ext.config);
+  rebuildLayout({ preserveHeldState: false, paintInstrument: false });
+  if (flashCoord) {
+    flashSelection(flashCoord);
+  }
+  log.info(`MPE routing ${nextValue ? "enabled" : "disabled"} (${nextValue ? "notes/pitch bend on source channels" : "notes/pitch bend forced to channel 1"}).`);
+  logActiveState(trigger);
+  return nextValue;
+}
+
 function handleNoteOn(msg) {
   const controlStripCommand = normalizeUserFirmwareControlStripCommandEvent(msg);
   if (controlStripCommand) {
@@ -748,6 +776,10 @@ function handleNoteOn(msg) {
       toggleAllNotesMode({ trigger: "all-notes", flashCoord: event.coord });
       break;
     }
+    case "toggle-mpe": {
+      setMpeModeEnabled(!isMpeModeEnabled(), { trigger: "mpe", flashCoord: event.coord });
+      break;
+    }
     case "octave-down": {
       if (shiftOutputOctave(-1)) {
         flashSelection(event.coord);
@@ -761,6 +793,8 @@ function handleNoteOn(msg) {
       break;
     }
     case "play-note": {
+      const outputChannel = resolveOutputChannel(event.channel, isMpeModeEnabled());
+
       if (isLinnStrumentUserFirmwareModeEnabled()) {
         const transition = consumeUserFirmwareSlideTarget(ext.state.userFirmwareSlide, event.channel, event.noteNumber);
         if (transition && handleUserFirmwareSlideTransition(event, pad, transition)) {
@@ -769,18 +803,19 @@ function handleNoteOn(msg) {
       }
 
       const channelHadPlayableNote = Array.from(ext.state.routedNotesByPad.values()).some(
-        (entry) => entry.channel === event.channel,
+        (entry) => getRoutedInputChannel(entry) === event.channel,
       );
       ext.state.routedNotesByPad.set(event.coord, {
         note: pad.outNote,
-        channel: event.channel,
+        channel: outputChannel,
+        sourceChannel: event.channel,
         inputColumn: event.noteNumber,
       });
       if (isLinnStrumentUserFirmwareModeEnabled() && !channelHadPlayableNote) {
         ext.state.userFirmwarePitchAnchorByChannel.set(event.channel, { inputColumn: event.noteNumber });
-        sendLoopPitchBend14(8192, event.channel);
+        sendLoopPitchBend14(8192, outputChannel);
       }
-      sendLoopNoteOn(pad.outNote, event.velocity, event.channel);
+      sendLoopNoteOn(pad.outNote, event.velocity, outputChannel);
       refreshDetectedChord();
       refreshSameOutputNoteHighlights(pad.outNote);
       refreshInstrumentSameOutputNoteHighlights(pad.outNote);
@@ -859,7 +894,11 @@ function handlePolyPressure(msg) {
   }
 
   if (pad.role === "play-note") {
-    sendLoopPolyAftertouch(pad.outNote, msg.rawValue ?? 0, event.channel);
+    sendLoopPolyAftertouch(
+      pad.outNote,
+      msg.rawValue ?? 0,
+      resolveOutputChannel(event.channel, isMpeModeEnabled()),
+    );
   }
 }
 
@@ -879,14 +918,18 @@ function handleChannelAftertouch(msg) {
     sendLoopModWheel(pressure);
   }
 
-  const heldPlayableNotesOnChannel = Array.from(ext.state.routedNotesByPad.values())
-    .filter((entry) => entry.channel === channel)
-    .map((entry) => entry.note);
+  const heldPlayableEntriesOnChannel = Array.from(ext.state.routedNotesByPad.values())
+    .filter((entry) => getRoutedInputChannel(entry) === channel);
 
-  if (heldPlayableNotesOnChannel.length > 0) {
-    const uniqueNotes = new Set(heldPlayableNotesOnChannel);
-    uniqueNotes.forEach((noteNumber) => {
-      sendLoopPolyAftertouch(noteNumber, value, channel);
+  if (heldPlayableEntriesOnChannel.length > 0) {
+    const uniqueNoteKeys = new Set();
+    heldPlayableEntriesOnChannel.forEach((entry) => {
+      const key = noteKey(entry.channel, entry.note);
+      if (uniqueNoteKeys.has(key)) {
+        return;
+      }
+      uniqueNoteKeys.add(key);
+      sendLoopPolyAftertouch(entry.note, value, entry.channel);
     });
   }
 }
@@ -956,7 +999,7 @@ function handlePitchBend(msg) {
   const scaled14 = scalePitchBendForConfig(value14);
 
   if (shouldForwardPitchBendOnChannel(channel)) {
-    sendLoopPitchBend14(scaled14, channel);
+    sendLoopPitchBend14(scaled14, resolveOutputChannel(channel, isMpeModeEnabled()));
   }
 }
 
@@ -1025,7 +1068,7 @@ function maybeForwardUserFirmwarePitchBendFromX(channel, inputColumn, x14) {
     16383,
     8192,
   );
-  sendLoopPitchBend14(bend14, channel);
+  sendLoopPitchBend14(bend14, resolveOutputChannel(channel, isMpeModeEnabled()));
 }
 
 function isUserFirmwarePlayableInputColumnHeldOnChannel(channel, inputColumn) {
@@ -1037,7 +1080,7 @@ function isUserFirmwarePlayableInputColumnHeldOnChannel(channel, inputColumn) {
   }
 
   for (const routed of ext.state.routedNotesByPad.values()) {
-    if (routed.channel === channel && routed.inputColumn === inputColumn) {
+    if (getRoutedInputChannel(routed) === channel && routed.inputColumn === inputColumn) {
       return true;
     }
   }
@@ -1071,10 +1114,11 @@ function handleUserFirmwareSlideTransition(event, pad, transition) {
   ext.state.routedNotesByPad.set(event.coord, {
     ...sourceRouted,
     note: targetNote,
+    sourceChannel: event.channel,
     inputColumn: event.noteNumber,
   });
 
-  ext.state.userFirmwarePitchAnchorByChannel.set(outputChannel, { inputColumn: event.noteNumber });
+  ext.state.userFirmwarePitchAnchorByChannel.set(event.channel, { inputColumn: event.noteNumber });
   sendLoopPitchBend14(8192, outputChannel);
 
   refreshDetectedChord();
@@ -1092,7 +1136,7 @@ function findRoutedEntryByInputPosition(channel, inputColumn) {
     return null;
   }
   for (const [coord, routed] of ext.state.routedNotesByPad.entries()) {
-    if (routed.channel === channel && routed.inputColumn === inputColumn) {
+    if (getRoutedInputChannel(routed) === channel && routed.inputColumn === inputColumn) {
       return { coord, routed };
     }
   }
@@ -1110,18 +1154,24 @@ function finalizeRoutedNoteOff(coord, velocity) {
   refreshDetectedChord();
   if (isLinnStrumentUserFirmwareModeEnabled()) {
     if (Number.isFinite(routed.inputColumn)) {
-      ext.state.userFirmwareXByPad.delete(noteKey(routed.channel, routed.inputColumn));
+      const sourceChannel = getRoutedInputChannel(routed);
+      if (Number.isFinite(sourceChannel)) {
+        ext.state.userFirmwareXByPad.delete(noteKey(sourceChannel, routed.inputColumn));
+      }
     }
-    const anchor = ext.state.userFirmwarePitchAnchorByChannel.get(routed.channel);
-    const remainingOnChannel = Array.from(ext.state.routedNotesByPad.values()).find((entry) => entry.channel === routed.channel);
+    const sourceChannel = getRoutedInputChannel(routed);
+    const anchor = ext.state.userFirmwarePitchAnchorByChannel.get(sourceChannel);
+    const remainingOnChannel = Array.from(ext.state.routedNotesByPad.values()).find(
+      (entry) => getRoutedInputChannel(entry) === sourceChannel,
+    );
     if (!remainingOnChannel) {
-      ext.state.userFirmwarePitchAnchorByChannel.delete(routed.channel);
+      ext.state.userFirmwarePitchAnchorByChannel.delete(sourceChannel);
       sendLoopPitchBend14(8192, routed.channel);
     } else if (
       (!anchor || anchor.inputColumn === routed.inputColumn)
       && Number.isFinite(remainingOnChannel.inputColumn)
     ) {
-      ext.state.userFirmwarePitchAnchorByChannel.set(routed.channel, { inputColumn: remainingOnChannel.inputColumn });
+      ext.state.userFirmwarePitchAnchorByChannel.set(sourceChannel, { inputColumn: remainingOnChannel.inputColumn });
     }
   }
   refreshSameOutputNoteHighlights(routed.note);
@@ -2049,7 +2099,7 @@ function logActiveState(trigger = "state") {
   const tonic = NOTE_NAMES[mod(ext.config.selectedKey, 12)];
   const octave = Math.floor(ext.config.baseRootC / 12) - 1;
   log.info(
-    `State (${trigger}): tonic=${tonic}, scale=${mode.name}, allNotes=${ext.config.allNotesEnabled ? "on" : "off"}, octave=${octave}, layoutOffset=${getActiveLayoutRowOffset()} (scale=${ext.config.layoutRowOffsetScale}, all=${ext.config.layoutRowOffsetAllNotes}), deviceOffset=${ext.config.deviceRowOffset}`,
+    `State (${trigger}): tonic=${tonic}, scale=${mode.name}, allNotes=${ext.config.allNotesEnabled ? "on" : "off"}, mpe=${isMpeModeEnabled() ? "on" : "off"}, octave=${octave}, layoutOffset=${getActiveLayoutRowOffset()} (scale=${ext.config.layoutRowOffsetScale}, all=${ext.config.layoutRowOffsetAllNotes}), deviceOffset=${ext.config.deviceRowOffset}`,
   );
 }
 
@@ -2108,6 +2158,10 @@ function shouldLightPlayablePad(meta) {
   return shouldLightPlayablePadCore(meta, ext.config.allNotesEnabled);
 }
 
+function isMpeModeEnabled() {
+  return isMpeModeEnabledCore(ext.config, defaultConfig);
+}
+
 function noteKey(channel, noteNumber) {
   return `${channel}:${noteNumber}`;
 }
@@ -2121,18 +2175,13 @@ function scalePitchBendForConfig(value14) {
 }
 
 function shouldForwardPitchBendOnChannel(channel) {
-  if (!Number.isFinite(channel)) {
-    return false;
-  }
-
-  if (ext.config.assumeRowChannels) {
-    const row = rowIndexFromChannel(channel);
-    if (row !== null) {
-      return rowHasPlayablePads(row);
-    }
-  }
-
-  return Array.from(ext.state.routedNotesByPad.values()).some((entry) => entry.channel === channel);
+  return shouldForwardPitchBendForInputChannel({
+    inputChannel: channel,
+    assumeRowChannels: ext.config.assumeRowChannels,
+    rowIndexFromChannel,
+    rowHasPlayablePads,
+    routedEntries: Array.from(ext.state.routedNotesByPad.values()),
+  });
 }
 
 function rowIndexFromChannel(channel) {

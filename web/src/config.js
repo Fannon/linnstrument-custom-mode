@@ -17,6 +17,7 @@ export const defaultConfig = {
   layoutRowOffsetAllNotes: 5,
   pitchSlideSemitonesPerPad: 1,
   outputPitchBendRangeSemitones: 2,
+  mpeEnabled: true,
   assumeDefaultUserFirmwareSwitchMapping: true,
   userFirmwareDecimationMs: 0,
   userFirmwareAxesByRow: createDefaultUserFirmwareAxesByRow(),
