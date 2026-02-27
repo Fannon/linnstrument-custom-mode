@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   addChannelListener,
   readLinnStrumentParamValue,
+  readLinnStrumentSwitchAssignments,
   readLinnStrumentUserFirmwareModeEnabled,
 } from "../web/src/linnstrument-sync.js";
 
@@ -154,5 +155,34 @@ describe("linnstrument-sync", () => {
     expect(output.sent.length).toBe(1);
     expect(output.sent[0].value).toEqual([1, 117]); // 245
     expect(output.sent[0].options).toEqual({ channels: 1 });
+  });
+
+  test("readLinnStrumentSwitchAssignments queries NRPN 228 and 229 on channel 1", async () => {
+    const inputChannel = createFakeInputChannel();
+    const input = { channels: { 1: inputChannel } };
+    const output = {
+      sent: [],
+      sendNrpnValue(param, value, options) {
+        this.sent.push({ param, value, options });
+        const encodedParam = Array.isArray(value) ? value[0] * 128 + value[1] : -1;
+        if (encodedParam === 228) {
+          setTimeout(() => inputChannel.emit("nrpn", { message: { dataBytes: [38, 9] } }), 0);
+        }
+        if (encodedParam === 229) {
+          setTimeout(() => inputChannel.emit("nrpn", { message: { dataBytes: [38, 2] } }), 0);
+        }
+      },
+    };
+
+    await expect(readLinnStrumentSwitchAssignments({
+      input,
+      output,
+      timeoutMs: 50,
+      withTimeout: identityTimeout,
+      nrpnEncoder: (value) => [value >> 7, value & 0x7f],
+    })).resolves.toEqual({ switch1: 9, switch2: 2 });
+    expect(output.sent.length).toBe(2);
+    expect(output.sent[0].value).toEqual([1, 100]); // 228
+    expect(output.sent[1].value).toEqual([1, 101]); // 229
   });
 });

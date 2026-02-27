@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS,
+  USER_FIRMWARE_SWITCH_ASSIGNMENT,
   resolveUserFirmwareControlStripCommand,
 } from "../web/src/user-firmware-control-strip.js";
 
@@ -38,6 +39,19 @@ describe("user-firmware-control-strip", () => {
     expect(resolveUserFirmwareControlStripCommand(0, USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS.switch2, {
       userFirmwareModeEnabled: true,
       assumeDefaultSwitchMapping: false,
+    })).toBeNull();
+  });
+
+  test("uses queried switch assignments even when assumption is disabled", () => {
+    expect(resolveUserFirmwareControlStripCommand(0, USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS.switch1, {
+      userFirmwareModeEnabled: true,
+      assumeDefaultSwitchMapping: false,
+      switchAssignments: { switch1: USER_FIRMWARE_SWITCH_ASSIGNMENT.octaveUp, switch2: 3 },
+    })).toBe("octave-up");
+    expect(resolveUserFirmwareControlStripCommand(0, USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS.switch2, {
+      userFirmwareModeEnabled: true,
+      assumeDefaultSwitchMapping: false,
+      switchAssignments: { switch1: USER_FIRMWARE_SWITCH_ASSIGNMENT.octaveUp, switch2: 3 },
     })).toBeNull();
   });
 

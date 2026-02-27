@@ -59,7 +59,10 @@ import {
   clearNrpnDecoderState,
   consumeUserFirmwareModeNotification,
 } from "./linnstrument-nrpn.js";
-import { readLinnStrumentUserFirmwareModeEnabled } from "./linnstrument-sync.js";
+import {
+  readLinnStrumentSwitchAssignments,
+  readLinnStrumentUserFirmwareModeEnabled,
+} from "./linnstrument-sync.js";
 const MODE_BY_ID = Object.fromEntries(MODES.map((mode) => [mode.id, mode]));
 
 const INSTRUMENT_COLORS = {
@@ -114,6 +117,7 @@ export const ext = {
     mpeVoices: createMpeVoiceAllocator({ minChannel: 2, maxChannel: 15 }),
     userFirmwareRuntimeActive: true,
     nrpnDecoder: createNrpnDecoderState(),
+    userFirmwareSwitchAssignments: null,
     detectedChordName: "",
     instrumentPaintingEnabled: true,
   },
@@ -493,6 +497,7 @@ async function connectMidiFromConfig() {
 
   await configureLinnStrumentInputMode();
   await verifyLinnStrumentUserFirmwareModeState();
+  await syncUserFirmwareSwitchAssignments();
   updateRoutingStatus();
 }
 
@@ -1348,6 +1353,7 @@ function resolveUserFirmwareControlStripCommand(noteNumber, channel) {
     userFirmwareModeEnabled: isLinnStrumentUserFirmwareModeEnabled(),
     assumeDefaultSwitchMapping: ext.config.assumeDefaultUserFirmwareSwitchMapping ?? defaultConfig.assumeDefaultUserFirmwareSwitchMapping,
     rows: USER_FIRMWARE_CONTROL_STRIP_DEFAULT_ROWS,
+    switchAssignments: ext.state.userFirmwareSwitchAssignments,
   });
 }
 
@@ -1811,12 +1817,17 @@ function paintInstrumentUserFirmwareControlStrip() {
 }
 
 function getUserFirmwareControlStripColor(y, activeOverlay = false) {
-  const assumeDefaultSwitchMapping = ext.config.assumeDefaultUserFirmwareSwitchMapping ?? defaultConfig.assumeDefaultUserFirmwareSwitchMapping;
-  if (assumeDefaultSwitchMapping && y === USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_1 - 1) {
-    return INSTRUMENT_COLORS.octave; // Switch 1 = Oct-
+  if (y === USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_1 - 1) {
+    const action = resolveUserFirmwareControlStripCommand(0, USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_1);
+    if (action === "octave-down" || action === "octave-up") {
+      return INSTRUMENT_COLORS.octave;
+    }
   }
-  if (assumeDefaultSwitchMapping && y === USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_2 - 1) {
-    return INSTRUMENT_COLORS.octave; // Switch 2 = Oct+
+  if (y === USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_2 - 1) {
+    const action = resolveUserFirmwareControlStripCommand(0, USER_FIRMWARE_CONTROL_STRIP_ROW_SWITCH_2);
+    if (action === "octave-down" || action === "octave-up") {
+      return INSTRUMENT_COLORS.octave;
+    }
   }
   if (y === USER_FIRMWARE_CONTROL_STRIP_ROW_SPLIT - 1) {
     return activeOverlay ? INSTRUMENT_COLORS.selected : INSTRUMENT_COLORS.overlayTrigger; // Split = Overlay
@@ -1867,6 +1878,31 @@ async function verifyLinnStrumentUserFirmwareModeState() {
     );
   } catch (err) {
     log.warn(`Could not verify LinnStrument User Firmware mode state: ${err?.message || err}`);
+  }
+}
+
+async function syncUserFirmwareSwitchAssignments() {
+  if (!ext.midi.instrumentInput || !ext.midi.instrumentOutput) {
+    ext.state.userFirmwareSwitchAssignments = null;
+    return;
+  }
+
+  try {
+    const assignments = await readLinnStrumentSwitchAssignments({
+      input: ext.midi.instrumentInput,
+      output: ext.midi.instrumentOutput,
+      timeoutMs: 450,
+      withTimeout,
+      nrpnEncoder: nrpn,
+    });
+    ext.state.userFirmwareSwitchAssignments = assignments;
+    paintInstrumentLayout();
+    log.info(
+      `Read LinnStrument switch assignments (NRPN 228/229): switch1=${assignments.switch1}, switch2=${assignments.switch2}.`,
+    );
+  } catch (err) {
+    ext.state.userFirmwareSwitchAssignments = null;
+    log.warn(`Could not query LinnStrument switch assignments: ${err?.message || err}`);
   }
 }
 
