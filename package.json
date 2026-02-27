@@ -7,7 +7,7 @@
   "scripts": {
     "build": "bash ./bin/updateLibs.sh",
     "test:unit": "bun test",
-    "test:syntax": "node --check web/src/main.js && node --check web/src/grid.js && node --check web/src/config.js && node --check web/src/log.js && node --check web/src/core-logic.js && node --check web/src/layout-logic.js && node --check web/src/linnstrument-sync.js && node --check web/src/control-overlay.js && node --check web/src/user-firmware-slide.js",
+    "test:syntax": "node --check web/src/main.js && node --check web/src/grid.js && node --check web/src/config.js && node --check web/src/log.js && node --check web/src/core-logic.js && node --check web/src/layout-logic.js && node --check web/src/linnstrument-sync.js && node --check web/src/control-overlay.js && node --check web/src/user-firmware-slide.js && node --check web/src/linnstrument-nrpn.js",
     "test": "bun run test:unit && bun run test:syntax",
     "verify": "bun run test && bun run build",
     "deploy": "gh-pages -d ./web",

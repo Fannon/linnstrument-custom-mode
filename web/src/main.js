@@ -33,6 +33,11 @@ import {
   consumeUserFirmwareSlideTarget,
   shouldIgnoreUserFirmwareSlideSourceRelease,
 } from "./user-firmware-slide.js";
+import {
+  createNrpnDecoderState,
+  clearNrpnDecoderState,
+  consumeUserFirmwareModeNotification,
+} from "./linnstrument-nrpn.js";
 const MODE_BY_ID = Object.fromEntries(MODES.map((mode) => [mode.id, mode]));
 
 const INSTRUMENT_COLORS = {
@@ -90,6 +95,7 @@ export const ext = {
     userFirmwareXByPad: new Map(),
     userFirmwarePitchAnchorByChannel: new Map(),
     userFirmwareSlide: createUserFirmwareSlideState(),
+    nrpnDecoder: createNrpnDecoderState(),
     detectedChordName: "",
     instrumentPaintingEnabled: true,
   },
@@ -852,12 +858,17 @@ function handleChannelAftertouch(msg) {
 }
 
 function handleControlChange(msg) {
-  if (!isLinnStrumentUserFirmwareModeEnabled()) {
+  const event = extractRawControlChangeEvent(msg);
+  if (!event) {
     return;
   }
 
-  const event = extractRawControlChangeEvent(msg);
-  if (!event) {
+  const userFirmwareModeEnabled = consumeUserFirmwareModeNotification(ext.state.nrpnDecoder, event);
+  if (typeof userFirmwareModeEnabled === "boolean") {
+    applyLinnStrumentUserFirmwareModeNotification(userFirmwareModeEnabled);
+  }
+
+  if (!isLinnStrumentUserFirmwareModeEnabled()) {
     return;
   }
 
@@ -881,6 +892,28 @@ function handleControlChange(msg) {
   ext.state.userFirmwareXByPad.set(key, cached);
 
   maybeForwardUserFirmwarePitchBendFromX(event.channel, xMessage.column, ((cached.msb & 0x7f) << 7) | (cached.lsb & 0x7f));
+}
+
+function applyLinnStrumentUserFirmwareModeNotification(enabled) {
+  const nextProtocol = enabled
+    ? LINNSTRUMENT_INPUT_PROTOCOL_USER_FIRMWARE
+    : LINNSTRUMENT_INPUT_PROTOCOL_STANDARD;
+  if (ext.config.linnStrumentInputProtocol === nextProtocol) {
+    return;
+  }
+
+  clearHeldState();
+  ext.config.linnStrumentInputProtocol = nextProtocol;
+  ext.state.instrumentPaintingEnabled = Boolean(enabled);
+  persistConfig(ext.config);
+  populateUiFromConfig();
+  rebuildLayout({ paintInstrument: enabled });
+
+  if (enabled) {
+    log.warn("Received LinnStrument mode notification (NRPN 245=1 on channel 9). App switched to User Firmware input decoding; no auto-configuration was sent.");
+  } else {
+    log.warn("Received LinnStrument mode notification (NRPN 245=0 on channel 9). App switched to standard decoding, sent panic state, and stopped app LED painting.");
+  }
 }
 
 function handlePitchBend(msg) {
@@ -1514,6 +1547,7 @@ function allNotesOff() {
   ext.state.userFirmwarePitchAnchorByChannel.clear();
   ext.state.userFirmwareXByPad.clear();
   clearUserFirmwareSlideState(ext.state.userFirmwareSlide);
+  clearNrpnDecoderState(ext.state.nrpnDecoder);
   ext.state.detectedChordName = "";
   updateChordStatusUi();
 }
@@ -1534,6 +1568,7 @@ function clearHeldState() {
   ext.state.userFirmwarePitchAnchorByChannel.clear();
   ext.state.userFirmwareXByPad.clear();
   clearUserFirmwareSlideState(ext.state.userFirmwareSlide);
+  clearNrpnDecoderState(ext.state.nrpnDecoder);
   ext.state.detectedChordName = "";
   updateChordStatusUi();
 }

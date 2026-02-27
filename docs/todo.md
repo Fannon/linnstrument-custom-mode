@@ -16,14 +16,10 @@ Generally, check out what I put into tmp/ and note in AGENT.md what is useful. C
 
 ## TODO
 
-  1. [High] No inbound handling of firmware’s mode-change notification (NRPN 245 on channel 9).
-     Firmware emits this when user toggles User Firmware mode from hardware (ls_settings.ino:2447, user_firmware_mode.md:25).
-     App only listens to note/cc/aftertouch/pitchbend (web/src/main.js:617).
-     Suggestion: add NRPN parser/listener so UI/protocol state auto-updates when hardware exits/enters user firmware.
-  2. [Medium] Control-strip switch behavior is hardcoded in app, but firmware switch assignments are configurable.
+  1. [Medium] Control-strip switch behavior is hardcoded in app, but firmware switch assignments are configurable.
      App assumes fixed rows for overlay/octave/exit (web/src/main.js:1433); firmware exposes switch assignment via NRPNs (midi.md:235, midi.md:236).
      Suggestion: either query/read assignments (NRPN 228/229) or add an explicit “assume default switch mapping” toggle in UI.
-  3. [Medium] Decimation and some user-firmware controls are not fully surfaced as app options.
+  2. [Medium] Decimation and some user-firmware controls are not fully surfaced as app options.
      Firmware supports decimation CC13 and per-row X/Y/Z toggles (midi.md:37, midi.md:41, ls_midi.ino:409).
      App configures these once in code (web/src/main.js:2124).
      Suggestion: expose them as advanced settings for debugging/performance tuning.
