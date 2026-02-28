@@ -9,6 +9,8 @@
   --shadow: 0 14px 40px rgba(31, 36, 48, 0.1);
 
   --zone-mod: #dbe8ff;
+  --zone-mod-text: var(--ink);
+  --zone-mod-subtext: rgba(31, 36, 48, 0.7);
   --zone-overlay-trigger: #f6d0ff;
   --zone-key: #d8f2ea;
   --zone-key-accidental: #dbe8ff;
@@ -19,7 +21,16 @@
   --zone-mpe-enabled: #8fe88f;
   --zone-mpe-disabled: #ff9b9b;
   --zone-play: #f4efdf;
+  --zone-play-text: var(--ink);
+  --zone-play-subtext: rgba(31, 36, 48, 0.7);
+  --zone-play-out-of-scale: #fff;
+  --zone-play-out-of-scale-text: rgba(31, 36, 48, 0.42);
+  --zone-play-out-of-scale-subtext: rgba(31, 36, 48, 0.38);
   --zone-root: #f9b46c;
+  --zone-root-text: var(--ink);
+  --zone-root-subtext: rgba(31, 36, 48, 0.7);
+  --zone-root-border: rgba(199, 84, 47, 0.55);
+  --zone-root-shadow: rgba(199, 84, 47, 0.2);
   --zone-disabled: #ece7dc;
   --zone-active: #1c6e63;
   --zone-active-text: #f7fff9;
@@ -386,6 +397,11 @@ body {
 
 .cell.zone-mod {
   background: var(--zone-mod);
+  color: var(--zone-mod-text);
+}
+
+.cell.zone-mod .cell-sub-label {
+  color: var(--zone-mod-subtext);
 }
 .cell.zone-overlay-trigger {
   background: var(--zone-overlay-trigger);
@@ -419,21 +435,31 @@ body {
 }
 .cell.zone-play {
   background: var(--zone-play);
+  color: var(--zone-play-text);
+}
+
+.cell.zone-play .cell-sub-label {
+  color: var(--zone-play-subtext);
 }
 .cell.zone-play.cell-out-of-scale {
-  background: #fff;
-  color: rgba(31, 36, 48, 0.42);
+  background: var(--zone-play-out-of-scale);
+  color: var(--zone-play-out-of-scale-text);
 }
 
 .cell.zone-play.cell-out-of-scale .cell-sub-label {
-  color: rgba(31, 36, 48, 0.38);
+  color: var(--zone-play-out-of-scale-subtext);
 }
 .cell.cell-root {
   background: var(--zone-root);
+  color: var(--zone-root-text);
+}
+
+.cell.cell-root .cell-sub-label {
+  color: var(--zone-root-subtext);
 }
 .cell.zone-play.cell-root {
-  border-color: rgba(199, 84, 47, 0.55);
-  box-shadow: inset 0 0 0 1px rgba(199, 84, 47, 0.2);
+  border-color: var(--zone-root-border);
+  box-shadow: inset 0 0 0 1px var(--zone-root-shadow);
 }
 .cell.cell-disabled {
   background: var(--zone-disabled);

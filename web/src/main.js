@@ -2,6 +2,7 @@ import { log, logActiveState } from "./log.js";
 import { initConfig, persistConfig, clearPersistedConfig, defaultConfig } from "./config.js";
 import { resetGrid, getGridDict, generateGrid, drawGrid, getGridMappingSignature } from "./grid.js";
 import { coordKey, debounce } from "./utils.js";
+import { resolveUiLedColor, getUiTextTone, withAlpha } from "./colors.js";
 import { PRESETS, buildLayoutDefinition as buildLayoutDefinitionCore } from "./layout-logic.js";
 import {
   CONTROL_OVERLAY_TRIGGER_COORD,
@@ -422,6 +423,7 @@ function populateUiFromConfig() {
   setValue("deviceStartNote", ext.config.deviceStartNote);
   setValue("deviceRowOffset", ext.config.deviceRowOffset);
   setValue("loopInputPort", ext.config.loopInputPort);
+  applyUiColorThemeFromConfig();
 }
 
 function readConfigFromUi() {
@@ -661,6 +663,7 @@ function rebuildLayout(options = {}) {
   ext.layout.cellMeta = layout.cellMeta;
   ext.layout.padMap = layout.padMap;
 
+  applyUiColorThemeFromConfig();
   drawGrid(ext.grid, ext.layout.cellMeta);
   rehydrateBackchannelHighlights();
   refreshHeldCellClasses();
@@ -2055,6 +2058,41 @@ function shouldForwardPitchBendOnChannel(channel) {
     inputChannel: channel,
     routedEntries: Array.from(ext.state.routedNotesByPad.values()),
   });
+}
+
+function applyUiColorThemeFromConfig() {
+  const root = document.documentElement;
+  if (!root) {
+    return;
+  }
+
+  const modLed = parseLedColor(ext.config.colorModWheel, defaultConfig.colorModWheel);
+  const rootLed = parseLedColor(ext.config.colorRootNote, defaultConfig.colorRootNote);
+  const scaleLed = parseLedColor(ext.config.colorScaleNote, defaultConfig.colorScaleNote);
+  const nonScaleLed = parseLedColor(ext.config.colorNonScaleNote, defaultConfig.colorNonScaleNote);
+  const modColor = resolveUiLedColor(modLed);
+  const rootColor = resolveUiLedColor(rootLed);
+  const scaleColor = resolveUiLedColor(scaleLed);
+  const nonScaleColor = resolveUiLedColor(nonScaleLed);
+  const modTone = getUiTextTone(modLed, modColor);
+  const rootTone = getUiTextTone(rootLed, rootColor);
+  const playTone = getUiTextTone(scaleLed, scaleColor);
+  const playOutTone = getUiTextTone(nonScaleLed, nonScaleColor);
+
+  root.style.setProperty("--zone-mod", modColor);
+  root.style.setProperty("--zone-mod-text", modTone.text);
+  root.style.setProperty("--zone-mod-subtext", modTone.subtext);
+  root.style.setProperty("--zone-root", rootColor);
+  root.style.setProperty("--zone-root-text", rootTone.text);
+  root.style.setProperty("--zone-root-subtext", rootTone.subtext);
+  root.style.setProperty("--zone-play", scaleColor);
+  root.style.setProperty("--zone-play-out-of-scale", nonScaleColor);
+  root.style.setProperty("--zone-play-text", playTone.text);
+  root.style.setProperty("--zone-play-subtext", playTone.subtext);
+  root.style.setProperty("--zone-play-out-of-scale-text", playOutTone.text);
+  root.style.setProperty("--zone-play-out-of-scale-subtext", playOutTone.subtext);
+  root.style.setProperty("--zone-root-border", withAlpha(rootColor, 0.55));
+  root.style.setProperty("--zone-root-shadow", withAlpha(rootColor, 0.2));
 }
 
 ext.fn = {
