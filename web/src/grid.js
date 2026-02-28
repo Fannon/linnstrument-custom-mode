@@ -3,6 +3,10 @@ import { coordKey } from "./utils.js";
 
 export { coordKey };
 
+export function getGridMappingSignature(config = {}) {
+  return [config.linnStrumentSize, config.deviceStartNote, config.deviceRowOffset, config.deviceColOffset].join("|");
+}
+
 export function generateGrid(startNoteNumber = 30, rowOffset = 5, colOffset = 1) {
   const grid = [];
   const columns = window.ext.config.linnStrumentSize / 8;
@@ -87,8 +91,6 @@ export function drawGrid(grid, cellMeta = {}) {
     }
   }
 }
-
-
 
 function midiNoteLabel(noteNumber) {
   if (!Number.isFinite(noteNumber) || noteNumber < 0 || noteNumber > 127) {

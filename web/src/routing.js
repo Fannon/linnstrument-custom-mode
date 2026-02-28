@@ -1,3 +1,5 @@
+import { clampInt } from "./core-logic.js";
+
 export function noteKey(channel, noteNumber) {
   return `${channel}:${noteNumber}`;
 }
@@ -66,4 +68,39 @@ export function findCoordByRoutedNote(routedNotesByPad, channel, noteNumber) {
     }
   }
   return null;
+}
+
+export function extractRawTouchEvent(msg) {
+  const noteNumber = msg?.note?.number ?? msg?.dataBytes?.[0];
+  if (!Number.isFinite(noteNumber)) {
+    return null;
+  }
+
+  const channel = getChannel(msg);
+  const velocity = msg.rawVelocity ?? msg.rawValue ?? 0;
+  return {
+    noteNumber,
+    channel,
+    velocity,
+    coord: typeof msg?.coord === "string" ? msg.coord : null,
+  };
+}
+
+export function extractRawControlChangeEvent(msg) {
+  const controller = msg?.controller?.number ?? msg?.dataBytes?.[0];
+  if (!Number.isFinite(controller)) {
+    return null;
+  }
+
+  const rawValue = msg?.rawValue ?? msg?.value ?? msg?.dataBytes?.[1];
+  const value7 =
+    typeof rawValue === "number" && rawValue >= 0 && rawValue <= 1
+      ? clampInt(Math.round(rawValue * 127), 0, 127, 0)
+      : clampInt(rawValue, 0, 127, 0);
+
+  return {
+    controller,
+    channel: getChannel(msg),
+    value7,
+  };
 }

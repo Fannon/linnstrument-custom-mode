@@ -1,7 +1,7 @@
-import { log } from "./log.js";
+import { log, logActiveState } from "./log.js";
 import { initConfig, persistConfig, clearPersistedConfig, defaultConfig } from "./config.js";
-import { resetGrid, getGridDict, generateGrid, drawGrid } from "./grid.js";
-import { coordKey } from "./utils.js";
+import { resetGrid, getGridDict, generateGrid, drawGrid, getGridMappingSignature } from "./grid.js";
+import { coordKey, debounce } from "./utils.js";
 import { PRESETS, buildLayoutDefinition as buildLayoutDefinitionCore } from "./layout-logic.js";
 import {
   CONTROL_OVERLAY_TRIGGER_COORD,
@@ -16,6 +16,7 @@ import {
   clampInt,
   detectChordNameFromMidiNotes,
   parsePitchSlideSetting,
+  parseLedColor,
   mod,
   getPitchBend14,
   scalePitchBend14,
@@ -49,6 +50,8 @@ import {
   findCoordByRoutedNote as findCoordByRoutedNoteCore,
   modTouchId,
   overlayTouchIdForEvent as overlayTouchIdForEventCore,
+  extractRawTouchEvent,
+  extractRawControlChangeEvent,
 } from "./routing.js";
 import {
   NRPN,
@@ -647,7 +650,7 @@ function rebuildLayout(options = {}) {
   if (!preserveHeldState) {
     clearHeldState();
   }
-  const gridMappingSignature = getGridMappingSignature();
+  const gridMappingSignature = getGridMappingSignature(ext.config);
   if (ext.layout.gridMappingSignature !== gridMappingSignature || !ext.grid) {
     ext.grid = generateGrid(ext.config.deviceStartNote, ext.config.deviceRowOffset, ext.config.deviceColOffset);
     ext.gridDict = getGridDict(ext.grid, ext.config.deviceStartNote);
@@ -829,7 +832,7 @@ function applySelectedKey(keyPc, options = {}) {
     flashPlayablePitchClass(nextKey);
   }
   log.info(`Key changed to ${NOTE_NAMES[nextKey]}`);
-  logActiveState(trigger);
+  logActiveState(buildActiveStatePayload(trigger));
   return true;
 }
 
@@ -852,7 +855,7 @@ function applySelectedMode(modeId, options = {}) {
     flashSelection(flashCoord);
   }
   log.info(`Mode changed to ${MODE_BY_ID[ext.config.selectedModeId]?.name || modeId}`);
-  logActiveState(trigger);
+  logActiveState(buildActiveStatePayload(trigger));
   return true;
 }
 
@@ -873,7 +876,7 @@ function setAllNotesMode(enabled, options = {}) {
   log.info(
     `All notes ${ext.config.allNotesEnabled ? "enabled" : "disabled"} (selected scale remains ${MODE_BY_ID[ext.config.selectedModeId]?.name || ext.config.selectedModeId}).`,
   );
-  logActiveState(trigger);
+  logActiveState(buildActiveStatePayload(trigger));
   return nextValue;
 }
 
@@ -899,7 +902,7 @@ function togglePresetLayout(options = {}) {
     flashSelection(flashCoord);
   }
   log.info(`Layout preset switched to ${nextPreset.name}.`);
-  logActiveState(trigger);
+  logActiveState(buildActiveStatePayload(trigger));
   return true;
 }
 
@@ -921,7 +924,7 @@ function setMpeModeEnabled(enabled, options = {}) {
   log.info(
     `MPE routing ${nextValue ? "enabled" : "disabled"} (${nextValue ? "notes/pitch bend on source channels" : "notes/pitch bend forced to channel 1"}).`,
   );
-  logActiveState(trigger);
+  logActiveState(buildActiveStatePayload(trigger));
   return nextValue;
 }
 
@@ -1257,25 +1260,6 @@ function releaseRoutedEntriesForInputChannel(inputChannel, keepCoord = null, vel
   });
 }
 
-function extractRawControlChangeEvent(msg) {
-  const controller = msg?.controller?.number ?? msg?.dataBytes?.[0];
-  if (!Number.isFinite(controller)) {
-    return null;
-  }
-
-  const rawValue = msg?.rawValue ?? msg?.value ?? msg?.dataBytes?.[1];
-  const value7 =
-    typeof rawValue === "number" && rawValue >= 0 && rawValue <= 1
-      ? clampInt(Math.round(rawValue * 127), 0, 127, 0)
-      : clampInt(rawValue, 0, 127, 0);
-
-  return {
-    controller,
-    channel: getChannel(msg),
-    value7,
-  };
-}
-
 function shouldSuppressNonMpePitchBend() {
   return !isMpeModeEnabled() && ext.state.routedNotesByPad.size > 1;
 }
@@ -1346,22 +1330,6 @@ function normalizeOverlayTriggerEvent(msg, options = {}) {
   }
 
   return null;
-}
-
-function extractRawTouchEvent(msg) {
-  const noteNumber = msg?.note?.number ?? msg?.dataBytes?.[0];
-  if (!Number.isFinite(noteNumber)) {
-    return null;
-  }
-
-  const channel = getChannel(msg);
-  const velocity = msg.rawVelocity ?? msg.rawValue ?? 0;
-  return {
-    noteNumber,
-    channel,
-    velocity,
-    coord: typeof msg?.coord === "string" ? msg.coord : null,
-  };
 }
 
 function resolvePadCoord(noteNumber, channel) {
@@ -1814,15 +1782,6 @@ function hasTransientPerformanceState() {
   );
 }
 
-function getGridMappingSignature() {
-  return [
-    ext.config.linnStrumentSize,
-    ext.config.deviceStartNote,
-    ext.config.deviceRowOffset,
-    ext.config.deviceColOffset,
-  ].join("|");
-}
-
 function updateStatusUi() {
   const mode = MODE_BY_ID[ext.config.selectedModeId] || MODES[0];
   const outputOctave = Math.floor(ext.config.baseRootC / 12) - 1;
@@ -2027,17 +1986,24 @@ function shiftOutputOctave(deltaOctaves) {
   persistConfig(ext.config);
   rebuildLayout({ preserveHeldState: true, paintInstrument: false });
   log.info(`Output octave changed: base C = ${NOTE_NAMES[nextBaseRootC % 12]}${Math.floor(nextBaseRootC / 12) - 1}`);
-  logActiveState("octave");
+  logActiveState(buildActiveStatePayload("octave"));
   return true;
 }
 
-function logActiveState(trigger = "state") {
+function buildActiveStatePayload(trigger = "state") {
   const mode = MODE_BY_ID[ext.config.selectedModeId] || MODES[0];
-  const tonic = NOTE_NAMES[mod(ext.config.selectedKey, 12)];
-  const octave = Math.floor(ext.config.baseRootC / 12) - 1;
-  log.info(
-    `State (${trigger}): tonic=${tonic}, scale=${mode.name}, allNotes=${ext.config.allNotesEnabled ? "on" : "off"}, mpe=${isMpeModeEnabled() ? "on" : "off"}, octave=${octave}, layoutOffset=${getActiveLayoutRowOffset()} (scale=${ext.config.layoutRowOffsetScale}, all=${ext.config.layoutRowOffsetAllNotes}), deviceOffset=${ext.config.deviceRowOffset}`,
-  );
+  return {
+    trigger,
+    tonic: NOTE_NAMES[mod(ext.config.selectedKey, 12)],
+    scale: mode.name,
+    allNotesEnabled: Boolean(ext.config.allNotesEnabled),
+    mpeEnabled: isMpeModeEnabled(),
+    octave: Math.floor(ext.config.baseRootC / 12) - 1,
+    activeLayoutRowOffset: getActiveLayoutRowOffset(),
+    layoutRowOffsetScale: ext.config.layoutRowOffsetScale,
+    layoutRowOffsetAllNotes: ext.config.layoutRowOffsetAllNotes,
+    deviceRowOffset: ext.config.deviceRowOffset,
+  };
 }
 
 function getActiveLayoutRowOffset() {
@@ -2089,18 +2055,6 @@ function shouldForwardPitchBendOnChannel(channel) {
     inputChannel: channel,
     routedEntries: Array.from(ext.state.routedNotesByPad.values()),
   });
-}
-
-function parseLedColor(value, fallback = INSTRUMENT_COLORS.off) {
-  return clampInt(value, 0, 11, fallback);
-}
-
-function debounce(fn, delay) {
-  let t = null;
-  return (...args) => {
-    if (t) clearTimeout(t);
-    t = setTimeout(() => fn(...args), delay);
-  };
 }
 
 ext.fn = {

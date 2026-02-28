@@ -13,7 +13,28 @@ export const log = {
     console.error(msg);
     appendLogEntry("error", msg);
   },
+  activeState({
+    trigger = "state",
+    tonic = "-",
+    scale = "-",
+    allNotesEnabled = false,
+    mpeEnabled = false,
+    octave = 0,
+    activeLayoutRowOffset = 0,
+    layoutRowOffsetScale = 0,
+    layoutRowOffsetAllNotes = 0,
+    deviceRowOffset = 0,
+  } = {}) {
+    appendLogEntry(
+      "info",
+      `State (${trigger}): tonic=${tonic}, scale=${scale}, allNotes=${allNotesEnabled ? "on" : "off"}, mpe=${mpeEnabled ? "on" : "off"}, octave=${octave}, layoutOffset=${activeLayoutRowOffset} (scale=${layoutRowOffsetScale}, all=${layoutRowOffsetAllNotes}), deviceOffset=${deviceRowOffset}`,
+    );
+  },
 };
+
+export function logActiveState(state = {}) {
+  log.activeState(state);
+}
 
 function appendLogEntry(level, msg) {
   const container = document.getElementById("log");

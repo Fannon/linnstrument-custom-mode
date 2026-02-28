@@ -37,6 +37,10 @@ export function parsePitchSlideSetting(value, fallback = 1) {
   return fallback;
 }
 
+export function parseLedColor(value, fallback = 7) {
+  return clampInt(value, 0, 11, fallback);
+}
+
 export function mod(n, m) {
   return ((n % m) + m) % m;
 }
@@ -265,4 +269,3 @@ export function getActiveLayoutRowOffset(config, defaults) {
     ? clampInt(config?.layoutRowOffsetAllNotes, 1, 12, allNotesFallback)
     : clampInt(config?.layoutRowOffsetScale, 1, 12, scaleFallback);
 }
-
