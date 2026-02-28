@@ -99,7 +99,11 @@ body {
 
 .layout-grid {
   display: grid;
-  grid-template-columns: 360px minmax(0, 1fr);
+  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+  grid-template-areas:
+    "controls surface"
+    "advanced advanced"
+    "log log";
   gap: 18px;
   align-items: start;
 }
@@ -201,17 +205,32 @@ body {
   letter-spacing: 0.05em;
 }
 
+.control-panel {
+  grid-area: controls;
+}
+
 .surface-panel {
-  grid-column: 2;
+  grid-area: surface;
   padding-top: 4px;
 }
 
 .advanced-panel {
-  grid-column: 1 / span 2;
+  grid-area: advanced;
 }
 
 .log-panel {
-  grid-column: 1 / span 2;
+  grid-area: log;
+}
+
+@media (max-width: 960px) {
+  .layout-grid {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "surface"
+      "controls"
+      "advanced"
+      "log";
+  }
 }
 
 .surface-header {
