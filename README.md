@@ -93,22 +93,6 @@ This project is built with vanilla JavaScript—no heavy frameworks, just clean 
 
 > For more detailed technical documentation and a deeper dive into the module architecture, see the **[Agent Guide](AGENTS.md)**.
 
-```text
-web/src/
-  main.js             # App entry point, MIDI handlers, UI binding
-  colors.js           # Handles UI color palettes and hardware sync
-  config.js           # Manages your saved preferences
-  core-logic.js       # The math behind scales, chords, and pitch bend
-  grid.js             # Handles visual rendering and coordinate mapping
-  layout-logic.js     # Defines how pads are assigned their roles
-  control-overlay.js  # Manages the "Dashboard" overlay state
-  mpe-routing.js      # Smart MPE voice and channel routing
-  midi-io.js          # Hardware discovery and port management
-  utils.js            # Shared utility functions (debounce, coordinate keys)
-  instrument-sync.js  # Hardware-specific NRPN communication
-  log.js              # UI and console logging utility
-```
-
 ### Dev Commands
 ```bash
 bun install           # Install dev tools (Biome, Playwright)
@@ -120,8 +104,8 @@ bun run verify        # Run all checks (Lint, Tests, Build)
 
 ## 📜 References & License
 
-- [LinnStrument Firmware Documentation](tmp/linnstrument-firmware/midi.md)
-- [MIDI MPE Specification](tmp/MIDI%20MPE%20Spec.md)
+- [LinnStrument Firmware Documentation](https://github.com/rogerlinndesign/linnstrument-firmware)
+- [MIDI MPE Specification](https://midi.org/mpe-midi-polyphonic-expression)
 - Inspired by the [Midimech](https://github.com/flipcoder/midimech) layout.
 
 MIT License — Share, build, and play! 🎵

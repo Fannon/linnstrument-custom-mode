@@ -89,13 +89,8 @@ ext.state        — { heldPads, routedNotesByPad, activeLoopNotes, controlOverl
 
 When routing or MIDI protocol behavior is ambiguous, check these firmware docs before inferring from app code:
 
-- `tmp/linnstrument-firmware/user_firmware_mode.md`
-- `tmp/linnstrument-firmware/midi.md`
-- `tmp/linnstrument-firmware/ls_handleTouches.ino`
-- `tmp/linnstrument-firmware/ls_midi.ino`
-- `tmp/linnstrument-firmware/ls_settings.ino`
-- `tmp/linnstrument-firmware/ls_noteTouchMapping.ino`
-- `tmp/MIDI MPE Spec.md`
+- [LinnStrument Firmware Documentation (GitHub)](https://github.com/rogerlinndesign/linnstrument-firmware)
+- [MIDI MPE Specification (midi.org)](https://midi.org/mpe-midi-polyphonic-expression)
 
 ## Current Project State (Feb 2026)
 
