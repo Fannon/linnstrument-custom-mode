@@ -150,12 +150,14 @@ test.beforeEach(async ({ page }) => {
     }
 
     const instrumentInput = createInput("LinnStrument Input");
+    const loopInput = createInput("loopMIDI Port");
     const instrumentOutput = createOutput("LinnStrument Output");
     const loopOutput = createOutput("loopMIDI Port");
     window.__instrumentInput = instrumentInput;
+    window.__loopInput = loopInput;
 
     window.WebMidi = {
-      inputs: [instrumentInput],
+      inputs: [instrumentInput, loopInput],
       outputs: [instrumentOutput, loopOutput],
       enable() {
         return Promise.resolve();
@@ -330,7 +332,7 @@ test("mpe toggle changes routing channel for clicked notes", async ({ page }) =>
   });
 
   await tapPad(page, "#cell-0-0");
-  await tapPad(page, "#cell-13-1");
+  await tapPad(page, "#cell-15-1");
   await expect.poll(async () => page.evaluate(() => Boolean(window.ext?.config?.mpeEnabled))).toBe(false);
   await tapPad(page, "#visualization .zone-play:not(.cell-disabled)");
 
@@ -408,6 +410,56 @@ test("same note number maps to same grid note even when input channel changes", 
   expect(analysis.notes[0]).toBe(analysis.notes[1]);
 });
 
+test("backchannel note input highlights and releases matching play pads", async ({ page }) => {
+  await page.selectOption("#loopInputPort", "loopMIDI Port");
+  await expect.poll(async () => page.evaluate(() => window.ext?.midi?.loopInput?.name || "")).toBe("loopMIDI Port");
+
+  const target = await page.evaluate(() => {
+    const first = Object.entries(window.ext?.layout?.padMap || {})
+      .find(([_coord, pad]) => pad?.role === "play-note");
+    if (!first) {
+      return null;
+    }
+    const [coord, pad] = first;
+    window.__loopInput.emit("noteon", { note: { number: pad.outNote }, channel: 1, rawVelocity: 100 });
+    return coord;
+  });
+  expect(target).toBeTruthy();
+  await expect(page.locator(`#cell-${target}`)).toHaveClass(/cell-held/);
+
+  await page.evaluate((coord) => {
+    const note = window.ext?.layout?.padMap?.[coord]?.outNote;
+    window.__loopInput.emit("noteoff", { note: { number: note }, channel: 1, rawVelocity: 0 });
+  }, target);
+  await expect(page.locator(`#cell-${target}`)).not.toHaveClass(/cell-held/);
+});
+
+test("noteoff still releases routed note when pad mapping changes mid-note", async ({ page }) => {
+  const analysis = await page.evaluate(() => {
+    window.__midiEvents.length = 0;
+    const input = window.__instrumentInput;
+    const base = Number(window.ext?.config?.deviceStartNote ?? 0);
+    const note = base + 3 + (3 * 16);
+
+    input.emit("noteon", { note: { number: note }, channel: 4, rawVelocity: 100 });
+    window.ext.config.deviceStartNote = (base + 1) % 128; // simulate transient mapping drift
+    input.emit("noteoff", { note: { number: note }, channel: 4, rawVelocity: 0 });
+
+    const loopEvents = window.__midiEvents.filter((event) => event.output === "loopMIDI Port");
+    const play = loopEvents.find((event) => event.type === "playNote");
+    const stop = loopEvents.find((event) => event.type === "stopNote");
+    return {
+      hasPlay: Boolean(play),
+      hasStop: Boolean(stop),
+      sameChannel: play && stop ? play.channel === stop.channel : false,
+    };
+  });
+
+  expect(analysis.hasPlay).toBe(true);
+  expect(analysis.hasStop).toBe(true);
+  expect(analysis.sameChannel).toBe(true);
+});
+
 test("wrapped top-row notes still map and route correctly", async ({ page }) => {
   const analysis = await page.evaluate(() => {
     window.__midiEvents.length = 0;
@@ -431,7 +483,7 @@ test("wrapped top-row notes still map and route correctly", async ({ page }) => 
 
 test("non-MPE mode routes notes to channel 1, keeps poly-aftertouch, and suppresses multi-note bend", async ({ page }) => {
   await tapPad(page, "#cell-0-0");
-  await tapPad(page, "#cell-13-1");
+  await tapPad(page, "#cell-15-1");
   await expect.poll(async () => page.evaluate(() => Boolean(window.ext?.config?.mpeEnabled))).toBe(false);
 
   const analysis = await page.evaluate(() => {

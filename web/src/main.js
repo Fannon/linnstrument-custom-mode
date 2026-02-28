@@ -75,6 +75,7 @@ const AUTO_APPLY_FIELD_IDS = [
   "instrumentInputPort",
   "instrumentOutputPort",
   "loopOutputPort",
+  "loopInputPort",
   "presetSelect",
   "layoutRowOffsetScale",
   "layoutRowOffsetAllNotes",
@@ -88,6 +89,7 @@ const AUTO_APPLY_RECONNECT_FIELD_IDS = new Set([
   "instrumentInputPort",
   "instrumentOutputPort",
   "loopOutputPort",
+  "loopInputPort",
 ]);
 
 export const ext = {
@@ -103,9 +105,13 @@ export const ext = {
     instrumentInput: null,
     instrumentOutput: null,
     loopOutput: null,
+    loopInput: null,
   },
   state: {
     heldPads: new Set(),
+    backchannelNotesByKey: new Map(),
+    backchannelCoordsByKey: new Map(),
+    backchannelPadRefCount: new Map(),
     routedNotesByPad: new Map(),
     activeLoopNotes: new Set(),
     modPressuresByPad: new Map(),
@@ -311,6 +317,7 @@ function populateUiFromConfig() {
   setValue("outputPitchBendRangeSemitones", ext.config.outputPitchBendRangeSemitones);
   setValue("deviceStartNote", ext.config.deviceStartNote);
   setValue("deviceRowOffset", ext.config.deviceRowOffset);
+  setValue("loopInputPort", ext.config.loopInputPort);
 }
 
 function readConfigFromUi() {
@@ -367,6 +374,7 @@ function readConfigFromUi() {
     instrumentInputPort: getValue("instrumentInputPort") || "",
     instrumentOutputPort: getValue("instrumentOutputPort") || "",
     loopOutputPort: getValue("loopOutputPort") || "",
+    loopInputPort: getValue("loopInputPort") || "",
   };
 
   setValue("layoutRowOffsetScale", ext.config.layoutRowOffsetScale);
@@ -385,6 +393,7 @@ function refreshPortSelectors({ autoSelectInstrument = false } = {}) {
     instrumentInputPort: getValue("instrumentInputPort") || ext.config.instrumentInputPort || "",
     instrumentOutputPort: getValue("instrumentOutputPort") || ext.config.instrumentOutputPort || "",
     loopOutputPort: getValue("loopOutputPort") || ext.config.loopOutputPort || "",
+    loopInputPort: getValue("loopInputPort") || ext.config.loopInputPort || "",
   };
 
   fillSelect(
@@ -403,6 +412,12 @@ function refreshPortSelectors({ autoSelectInstrument = false } = {}) {
     current.loopOutputPort,
     { includeEmpty: true, emptyLabel: "Select MIDI loop output..." },
   );
+  fillSelect(
+    document.getElementById("loopInputPort"),
+    WebMidi.inputs.map((port) => port.name),
+    current.loopInputPort,
+    { includeEmpty: true, emptyLabel: "Select backchannel input..." },
+  );
 
   if (autoSelectInstrument) {
     autoSelectLinnStrumentPorts();
@@ -411,6 +426,7 @@ function refreshPortSelectors({ autoSelectInstrument = false } = {}) {
   ext.config.instrumentInputPort = getValue("instrumentInputPort") || "";
   ext.config.instrumentOutputPort = getValue("instrumentOutputPort") || "";
   ext.config.loopOutputPort = getValue("loopOutputPort") || "";
+  ext.config.loopInputPort = getValue("loopInputPort") || "";
 }
 
 function fillSelect(selectEl, names, selected, options = {}) {
@@ -443,6 +459,7 @@ function autoSelectLinnStrumentPorts() {
   const inputSelect = document.getElementById("instrumentInputPort");
   const outputSelect = document.getElementById("instrumentOutputPort");
   const loopSelect = document.getElementById("loopOutputPort");
+  const loopInputSelect = document.getElementById("loopInputPort");
 
   const detectedInput = WebMidi.inputs.find((port) => /linnstrument/i.test(port.name));
   const detectedOutput = WebMidi.outputs.find((port) => /linnstrument/i.test(port.name));
@@ -467,15 +484,29 @@ function autoSelectLinnStrumentPorts() {
       log.info(`Preselected loop output candidate: ${firstLoop.name}`);
     }
   }
+
+  if (loopInputSelect && !loopInputSelect.value) {
+    const preferredLoopInput =
+      WebMidi.inputs.find((port) => /^loopMIDI Port$/i.test(port.name))
+      || WebMidi.inputs.find((port) => /bitwig|loopmidi|loopback/i.test(port.name));
+    const firstLoopInput = preferredLoopInput || WebMidi.inputs.find((port) => !/linnstrument/i.test(port.name));
+    if (firstLoopInput) {
+      loopInputSelect.value = firstLoopInput.name;
+      log.info(`Preselected backchannel input candidate: ${firstLoopInput.name}`);
+    }
+  }
 }
 
 async function connectMidiFromConfig() {
   readConfigFromUi();
   detachInstrumentInputListeners();
+  detachLoopInputListeners();
+  clearAllBackchannelHighlights();
 
   ext.midi.instrumentInput = null;
   ext.midi.instrumentOutput = null;
   ext.midi.loopOutput = null;
+  ext.midi.loopInput = null;
 
   if (ext.config.instrumentInputPort) {
     ext.midi.instrumentInput = WebMidi.getInputByName(ext.config.instrumentInputPort) || null;
@@ -508,6 +539,16 @@ async function connectMidiFromConfig() {
     log.warn("No loop output selected. Notes will not be routed.");
   }
 
+  if (ext.config.loopInputPort) {
+    ext.midi.loopInput = WebMidi.getInputByName(ext.config.loopInputPort) || null;
+    if (ext.midi.loopInput) {
+      attachLoopInputListeners(ext.midi.loopInput);
+      log.success(`Connected backchannel input: ${ext.config.loopInputPort}`);
+    } else {
+      log.warn(`Backchannel input not found: ${ext.config.loopInputPort}`);
+    }
+  }
+
   updateRoutingStatus();
 }
 
@@ -521,6 +562,16 @@ function detachInstrumentInputListeners() {
   }
 }
 
+function detachLoopInputListeners() {
+  if (ext.midi.loopInput) {
+    try {
+      ext.midi.loopInput.removeListener();
+    } catch (err) {
+      console.warn("Failed to detach previous backchannel listeners", err);
+    }
+  }
+}
+
 function attachInstrumentInputListeners(input) {
   input.addListener("noteon", (msg) => handleNoteOn(msg));
   input.addListener("noteoff", (msg) => handleNoteOff(msg));
@@ -528,6 +579,12 @@ function attachInstrumentInputListeners(input) {
   input.addListener("keyaftertouch", (msg) => handlePolyPressure(msg));
   input.addListener("channelaftertouch", (msg) => handleChannelAftertouch(msg));
   input.addListener("pitchbend", (msg) => handlePitchBend(msg));
+}
+
+function attachLoopInputListeners(input) {
+  input.addListener("noteon", (msg) => handleBackchannelNoteOn(msg));
+  input.addListener("noteoff", (msg) => handleBackchannelNoteOff(msg));
+  input.addListener("controlchange", (msg) => handleBackchannelControlChange(msg));
 }
 
 function rebuildLayout(options = {}) {
@@ -547,9 +604,8 @@ function rebuildLayout(options = {}) {
   ext.layout.padMap = layout.padMap;
 
   drawGrid(ext.grid, ext.layout.cellMeta);
-  if (preserveHeldState) {
-    refreshHeldCellClasses();
-  }
+  rehydrateBackchannelHighlights();
+  refreshHeldCellClasses();
   if (paintInstrument) {
     paintInstrumentLayout();
   }
@@ -899,6 +955,11 @@ function handleNoteOn(msg) {
       break;
     }
     case "play-note": {
+      const existingRouted = ext.state.routedNotesByPad.get(event.coord);
+      if (existingRouted) {
+        finalizeRoutedNoteOff(event.coord, 0);
+      }
+
       const mpeEnabled = isMpeModeEnabled();
       const sourceKey = noteKey(event.channel, event.noteNumber);
       const { channel: outputChannel, stolenInputKey } = mpeEnabled
@@ -942,6 +1003,20 @@ function handleNoteOff(msg) {
 
   const event = normalizeTouchEvent(msg);
   if (!event) {
+    const raw = extractRawTouchEvent(msg);
+    if (!raw) {
+      return;
+    }
+
+    // Best-effort cleanup when pad coord decoding fails:
+    // - release potential mod touch by channel+note
+    // - release any routed note by original source key
+    clearModPressure("", raw.channel, raw.noteNumber);
+    const sourceEntry = findRoutedEntryBySourceKey(noteKey(raw.channel, raw.noteNumber));
+    if (sourceEntry) {
+      setPadHeld(sourceEntry.coord, false);
+      finalizeRoutedNoteOff(sourceEntry.coord, raw.velocity);
+    }
     return;
   }
 
@@ -956,6 +1031,15 @@ function handleNoteOff(msg) {
   const routed = ext.state.routedNotesByPad.get(event.coord);
   if (routed) {
     finalizeRoutedNoteOff(event.coord, event.velocity);
+    return;
+  }
+
+  const sourceEntry = findRoutedEntryBySourceKey(noteKey(event.channel, event.noteNumber));
+  if (sourceEntry) {
+    if (sourceEntry.coord !== event.coord) {
+      setPadHeld(sourceEntry.coord, false);
+    }
+    finalizeRoutedNoteOff(sourceEntry.coord, event.velocity);
     return;
   }
 
@@ -1239,6 +1323,123 @@ function resolvePadCoord(noteNumber, channel) {
   });
 }
 
+function handleBackchannelNoteOn(msg) {
+  const noteNumber = msg?.note?.number ?? msg?.dataBytes?.[0];
+  if (!Number.isFinite(noteNumber)) {
+    return;
+  }
+  const velocity = Number(msg?.rawVelocity ?? msg?.rawValue ?? 0);
+  if (velocity <= 0) {
+    handleBackchannelNoteOff(msg);
+    return;
+  }
+
+  const inputKey = noteKey(getChannel(msg), noteNumber);
+  clearBackchannelHighlightForKey(inputKey);
+  ext.state.backchannelNotesByKey.set(inputKey, noteNumber);
+
+  const coords = findPlayableCoordsByOutputNote(noteNumber);
+  ext.state.backchannelCoordsByKey.set(inputKey, coords);
+  coords.forEach((coord) => addBackchannelPadHighlight(coord));
+}
+
+function handleBackchannelNoteOff(msg) {
+  const noteNumber = msg?.note?.number ?? msg?.dataBytes?.[0];
+  if (!Number.isFinite(noteNumber)) {
+    return;
+  }
+
+  const inputKey = noteKey(getChannel(msg), noteNumber);
+  if (clearBackchannelHighlightForKey(inputKey)) {
+    return;
+  }
+
+  const matchingKeys = Array.from(ext.state.backchannelNotesByKey.entries())
+    .filter(([_key, activeNoteNumber]) => activeNoteNumber === noteNumber)
+    .map(([key]) => key);
+  matchingKeys.forEach((key) => {
+    clearBackchannelHighlightForKey(key);
+  });
+}
+
+function handleBackchannelControlChange(msg) {
+  const controller = msg?.controller?.number ?? msg?.dataBytes?.[0];
+  if (!Number.isFinite(controller)) {
+    return;
+  }
+  // Respond to common panic/all-notes-off signals from DAW/controller script.
+  if (controller === 120 || controller === 123) {
+    clearAllBackchannelHighlights();
+  }
+}
+
+function clearAllBackchannelHighlights() {
+  const keys = Array.from(ext.state.backchannelCoordsByKey.keys());
+  keys.forEach((key) => {
+    clearBackchannelHighlightForKey(key);
+  });
+  ext.state.backchannelNotesByKey.clear();
+}
+
+function rehydrateBackchannelHighlights() {
+  const active = Array.from(ext.state.backchannelNotesByKey.entries());
+  ext.state.backchannelPadRefCount.clear();
+  ext.state.backchannelCoordsByKey.clear();
+  active.forEach(([inputKey, noteNumber]) => {
+    const coords = findPlayableCoordsByOutputNote(noteNumber);
+    ext.state.backchannelCoordsByKey.set(inputKey, coords);
+    coords.forEach((coord) => addBackchannelPadHighlight(coord));
+  });
+}
+
+function clearBackchannelHighlightForKey(inputKey) {
+  const hasKey = ext.state.backchannelCoordsByKey.has(inputKey) || ext.state.backchannelNotesByKey.has(inputKey);
+  if (!hasKey) {
+    return false;
+  }
+
+  const coords = ext.state.backchannelCoordsByKey.get(inputKey) || [];
+  coords.forEach((coord) => removeBackchannelPadHighlight(coord));
+  ext.state.backchannelCoordsByKey.delete(inputKey);
+  ext.state.backchannelNotesByKey.delete(inputKey);
+  return true;
+}
+
+function addBackchannelPadHighlight(coord) {
+  const prev = ext.state.backchannelPadRefCount.get(coord) || 0;
+  const next = prev + 1;
+  ext.state.backchannelPadRefCount.set(coord, next);
+  if (prev === 0) {
+    updatePadHeldVisual(coord);
+  }
+}
+
+function removeBackchannelPadHighlight(coord) {
+  const prev = ext.state.backchannelPadRefCount.get(coord) || 0;
+  if (prev <= 1) {
+    ext.state.backchannelPadRefCount.delete(coord);
+    if (prev > 0) {
+      updatePadHeldVisual(coord);
+    }
+    return;
+  }
+  ext.state.backchannelPadRefCount.set(coord, prev - 1);
+}
+
+function findPlayableCoordsByOutputNote(noteNumber) {
+  if (!Number.isFinite(noteNumber)) {
+    return [];
+  }
+
+  const coords = [];
+  for (const [coord, pad] of Object.entries(ext.layout.padMap || {})) {
+    if (pad?.role === "play-note" && pad.outNote === noteNumber) {
+      coords.push(coord);
+    }
+  }
+  return coords;
+}
+
 function setPadHeld(coord, held) {
   if (held) {
     ext.state.heldPads.add(coord);
@@ -1246,9 +1447,17 @@ function setPadHeld(coord, held) {
     ext.state.heldPads.delete(coord);
   }
 
+  updatePadHeldVisual(coord);
+}
+
+function isPadVisuallyHeld(coord) {
+  return ext.state.heldPads.has(coord) || (ext.state.backchannelPadRefCount.get(coord) || 0) > 0;
+}
+
+function updatePadHeldVisual(coord) {
   const el = document.getElementById(`cell-${coord}`);
   if (el) {
-    el.classList.toggle("cell-held", held);
+    el.classList.toggle("cell-held", isPadVisuallyHeld(coord));
   }
 
   paintInstrumentCoord(coord);
@@ -1338,12 +1547,13 @@ function refreshInstrumentSameOutputNoteHighlights(noteNumber) {
 }
 
 function refreshHeldCellClasses() {
-  ext.state.heldPads.forEach((coord) => {
+  for (const coord of Object.keys(ext.layout.cellMeta || {})) {
     const el = document.getElementById(`cell-${coord}`);
-    if (el) {
-      el.classList.add("cell-held");
+    if (!el) {
+      continue;
     }
-  });
+    el.classList.toggle("cell-held", isPadVisuallyHeld(coord));
+  }
 }
 
 function setModPressure(coord, value, channel = 1, noteNumber = null) {
@@ -1494,6 +1704,8 @@ function allNotesOff() {
   clearMpeVoiceAllocator(ext.state.mpeVoices);
   ext.state.detectedChordName = "";
   updateChordStatusUi();
+  refreshHeldCellClasses();
+  paintInstrumentLayout();
 }
 
 function clearHeldState() {
@@ -1604,7 +1816,7 @@ function paintInstrumentLayout() {
 }
 
 function getInstrumentColorForMeta(meta = {}, coord = null) {
-  if (coord && ext.state.heldPads.has(coord)) {
+  if (coord && isPadVisuallyHeld(coord)) {
     return INSTRUMENT_COLORS.held;
   }
 
