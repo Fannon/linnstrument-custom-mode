@@ -7,26 +7,6 @@
 
 ## 🐛 Bugs & Correctness Issues
 
-### B1 – `coordKey` is duplicated in three files
-
-**Files:** `web/src/grid.js:86`, `web/src/core-logic.js:264`, `web/src/layout-logic.js:152`
-
-Three identical `coordKey(x, y)` helper functions exist independently. The version in `core-logic.js` is private and used by `resolveNoOverlapPadCoord`, but main.js imports it from `grid.js`. `layout-logic.js` has its own private copy too.
-
-**Fix:**
-- Keep the `export` in `grid.js` (or move to a shared `utils.js`).
-- Remove the private copies from `core-logic.js` and `layout-logic.js`.
-- Import from the single source in both files.
-
-### B2 – `NOTE_NAMES` duplicated in `grid.js`
-
-**File:** `web/src/grid.js:95` (`midiNoteLabel`)
-
-`NOTE_NAMES` is defined as a constant in `core-logic.js` (exported), but `grid.js` re-declares the same array inline inside `midiNoteLabel()`.
-
-**Fix:**  
-Import `NOTE_NAMES` from `core-logic.js` and remove the inline duplicate.
-
 ### B3 – `resendPitchBendRangeFromConfig` calls the wrapper without output
 
 **File:** `web/src/main.js:1754–1755`
@@ -41,33 +21,11 @@ The local `setLinnStrumentParamValue` wrapper (`main.js:1967`) passes `ext.midi.
 **Fix:**  
 Rename local wrapper to `setLinnStrumentParam` (drop "Value") so it doesn't shadow the import, or rename the import to `_setLinnStrumentParamValueCore`.
 
-### B4 – `DEBUG_MIDI_FLOW = true` is hardcoded on
-
-**File:** `web/src/main.js:84`
-
-`DEBUG_MIDI_FLOW` is set to `true`, which means every note on/off is logged to both the DOM log and the console. This floods the log during normal operation, making it harder for users to see important messages (connection status, errors).
-
-**Fix:**  
-Default to `false`. Optionally expose it as a URL query parameter (`?debug=midi`) or a checkbox in the UI.
-
-### B5 – Redeclared `const raw` in `handleNoteOff`
-
-**File:** `web/src/main.js:1054`
-
-```js
-const raw = extractRawTouchEvent(msg);
-```
-
-`raw` is already declared on line 1038 (same scope). This works because the outer `raw` is used before the inner block, but it's still a redeclaration that Biome may not catch in this configuration. It reduces clarity.
-
-**Fix:**  
-Remove the second `const` and just reuse the outer `raw` (it's the same call on the same message).
-
 ---
 
 ## 🏗️ Refactoring & Architecture
 
-### R1 – `main.js` is still 2,100 lines and growing
+### R1 – `main.js` is still ~2,100 lines and growing
 
 Despite extracting modules (`grid.js`, `config.js`, `core-logic.js`, etc.), `main.js` contains **all** MIDI message handling, UI binding, instrument painting, connection logic, and runtime state. This makes it very difficult to test and review.
 
@@ -114,15 +72,6 @@ Gate this behind a debug flag:
 ```js
 if (location.search.includes("debug")) { window.ext = ext; }
 ```
-
-### R4 – Inline `if/else if` chain for instrument colors
-
-**File:** `web/src/main.js:1891–1923`
-
-`getInstrumentColorForMeta` uses a long chain of `if (meta.zone === "...") color = ...` — with no `else` keywords, so each one re-evaluates even after a match.
-
-**Fix:**  
-Convert to a `switch (meta.zone)` or use a lookup table to reduce cyclomatic complexity and avoid accidental fall-through.
 
 ### R5 – `createSurfaceTouchEventFromCoord` uses incorrect grid mapping
 
@@ -172,15 +121,6 @@ Playwright config uses CommonJS (`require`) yet all app source uses ESM. Playwri
 **Fix (low priority):**  
 Rename to `playwright.config.mjs` and convert to `import { defineConfig } from "@playwright/test"`.
 
-### Q3 – `package.json` `"main": "index.js"` is meaningless
-
-**File:** `package.json:6`
-
-There is no `index.js` at the root. This is a browser app, not an npm package.
-
-**Fix:**  
-Remove the `"main"` field or change it to `"private": true` (already not publishing, but clearer).
-
 ### Q4 – `.gitignore` is a generic Node template with many unused entries
 
 **File:** `.gitignore`
@@ -216,22 +156,6 @@ These modules have no dedicated unit tests. They are exercised indirectly throug
 2. `instrument-sync.js` – NRPN construction can be validated
 3. `midi-io.js` – port filtering logic
 
-### Q7 – `accidental` list is a magic array
-
-**File:** `web/src/core-logic.js:43`
-
-```js
-return [1, 3, 6, 8, 10].includes(mod(pc, 12));
-```
-
-The sharps/flats pitch classes are hardcoded as a raw array without explanation.
-
-**Fix:**  
-Extract as a named constant:
-```js
-const ACCIDENTAL_PITCH_CLASSES = new Set([1, 3, 6, 8, 10]); // C#, D#, F#, G#, A#
-```
-
 ---
 
 ## ✅ Completed Items
@@ -240,6 +164,13 @@ const ACCIDENTAL_PITCH_CLASSES = new Set([1, 3, 6, 8, 10]); // C#, D#, F#, G#, A
 - [x] Add Playwright e2e to CI (full run or nightly job) so regressions are caught before merge.
 - [x] Break up `web/src/main.js` into smaller modules (`midi-io`, `routing`, `ui-state`, `instrument-sync`) to reduce regression risk.
 - [x] Add runtime guardrails for missing MIDI ports and recover cleanly from hot-plug disconnect/reconnect.
+- [x] **B1** – Deduplicate `coordKey` — extracted to `web/src/utils.js`, imported everywhere.
+- [x] **B2** – Deduplicate `NOTE_NAMES` in `grid.js` — now imported from `core-logic.js`.
+- [x] **B4** – `DEBUG_MIDI_FLOW` defaulted to `false`.
+- [x] **B5** – Remove redundant `const raw = extractRawTouchEvent(msg)` in `handleNoteOff`.
+- [x] **R4** – Convert `getInstrumentColorForMeta` from if-chain to `switch` statement.
+- [x] **Q3** – Remove meaningless `"main": "index.js"` from `package.json`.
+- [x] **Q7** – Extract magic accidental pitch classes into named `ACCIDENTAL_PITCH_CLASSES` constant.
 
 ---
 

@@ -1,3 +1,8 @@
+import { NOTE_NAMES } from "./core-logic.js";
+import { coordKey } from "./utils.js";
+
+export { coordKey };
+
 export function generateGrid(startNoteNumber = 30, rowOffset = 5, colOffset = 1) {
   const grid = [];
   const columns = window.ext.config.linnStrumentSize / 8;
@@ -83,17 +88,14 @@ export function drawGrid(grid, cellMeta = {}) {
   }
 }
 
-export function coordKey(x, y) {
-  return `${x}-${y}`;
-}
+
 
 function midiNoteLabel(noteNumber) {
   if (!Number.isFinite(noteNumber) || noteNumber < 0 || noteNumber > 127) {
     return "-";
   }
 
-  const names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-  const name = names[noteNumber % 12];
+  const name = NOTE_NAMES[noteNumber % 12];
   const octave = Math.floor(noteNumber / 12) - 1;
   return `${name}${octave}`;
 }

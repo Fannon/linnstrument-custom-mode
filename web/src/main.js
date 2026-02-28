@@ -81,7 +81,7 @@ const INSTRUMENT_COLORS = {
 };
 
 const DEBUG_CONTROL_OVERLAY = false;
-const DEBUG_MIDI_FLOW = true;
+const DEBUG_MIDI_FLOW = false;
 const MIDIMECH_PRESET_ID = "midimech-v1";
 const AUTO_APPLY_FIELD_IDS = [
   "instrumentInputPort",
@@ -1052,7 +1052,6 @@ function handleNoteOff(msg) {
 
   const event = normalizeTouchEvent(msg);
   if (!event) {
-    const raw = extractRawTouchEvent(msg);
     if (!raw) {
       return;
     }
@@ -1894,35 +1893,40 @@ function getInstrumentColorForMeta(meta = {}, coord = null) {
   }
 
   const tonicPc = mod(ext.config.selectedKey ?? defaultConfig.selectedKey ?? 0, 12);
-  const isTonicPlayablePad =
-    meta.zone === "play" && Number.isFinite(meta.noteNumber) && mod(meta.noteNumber, 12) === tonicPc;
 
-  let color = INSTRUMENT_COLORS.disabled;
-
-  if (meta.zone === "overlay-trigger") color = INSTRUMENT_COLORS.overlayTrigger;
-  if (meta.zone === "mod") color = parseLedColor(ext.config.colorModWheel, defaultConfig.colorModWheel);
-  if (meta.zone === "key") {
-    color = meta.selected
-      ? INSTRUMENT_COLORS.selected
-      : meta.accidental
-        ? INSTRUMENT_COLORS.keyAccidental
-        : INSTRUMENT_COLORS.keyNatural;
+  switch (meta.zone) {
+    case "overlay-trigger":
+      return INSTRUMENT_COLORS.overlayTrigger;
+    case "mod":
+      return parseLedColor(ext.config.colorModWheel, defaultConfig.colorModWheel);
+    case "key":
+      return meta.selected
+        ? INSTRUMENT_COLORS.selected
+        : meta.accidental
+          ? INSTRUMENT_COLORS.keyAccidental
+          : INSTRUMENT_COLORS.keyNatural;
+    case "preset-switch":
+      return INSTRUMENT_COLORS.presetSwitch;
+    case "octave":
+      return INSTRUMENT_COLORS.octave;
+    case "mode":
+      return meta.selected ? INSTRUMENT_COLORS.selected : INSTRUMENT_COLORS.mode;
+    case "all-notes-toggle":
+      return meta.selected ? INSTRUMENT_COLORS.allNotesOn : INSTRUMENT_COLORS.allNotesOff;
+    case "mpe":
+      return meta.selected ? INSTRUMENT_COLORS.mpeEnabled : INSTRUMENT_COLORS.mpeDisabled;
+    case "play": {
+      const isTonicPlayablePad = Number.isFinite(meta.noteNumber) && mod(meta.noteNumber, 12) === tonicPc;
+      const rootColor = parseLedColor(ext.config.colorRootNote, defaultConfig.colorRootNote);
+      const scaleColor = parseLedColor(ext.config.colorScaleNote, defaultConfig.colorScaleNote);
+      const nonScaleColor = parseLedColor(ext.config.colorNonScaleNote, defaultConfig.colorNonScaleNote);
+      return isTonicPlayablePad ? rootColor : meta.inSelectedScale ? scaleColor : nonScaleColor;
+    }
+    case "disabled":
+      return INSTRUMENT_COLORS.off;
+    default:
+      return INSTRUMENT_COLORS.disabled;
   }
-  if (meta.zone === "preset-switch") color = INSTRUMENT_COLORS.presetSwitch;
-  if (meta.zone === "octave") color = INSTRUMENT_COLORS.octave;
-  if (meta.zone === "mode") color = meta.selected ? INSTRUMENT_COLORS.selected : INSTRUMENT_COLORS.mode;
-  if (meta.zone === "all-notes-toggle")
-    color = meta.selected ? INSTRUMENT_COLORS.allNotesOn : INSTRUMENT_COLORS.allNotesOff;
-  if (meta.zone === "mpe") color = meta.selected ? INSTRUMENT_COLORS.mpeEnabled : INSTRUMENT_COLORS.mpeDisabled;
-  if (meta.zone === "play") {
-    const rootColor = parseLedColor(ext.config.colorRootNote, defaultConfig.colorRootNote);
-    const scaleColor = parseLedColor(ext.config.colorScaleNote, defaultConfig.colorScaleNote);
-    const nonScaleColor = parseLedColor(ext.config.colorNonScaleNote, defaultConfig.colorNonScaleNote);
-    color = isTonicPlayablePad ? rootColor : meta.inSelectedScale ? scaleColor : nonScaleColor;
-  }
-  if (meta.zone === "disabled") color = INSTRUMENT_COLORS.off;
-
-  return color;
 }
 
 function paintInstrumentCoord(coord) {

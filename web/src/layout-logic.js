@@ -7,6 +7,7 @@ import {
   isPitchClassInMode,
   scaleNoteAt,
 } from "./core-logic.js";
+import { coordKey } from "./utils.js";
 
 export const PRESETS = [
   {
@@ -149,9 +150,7 @@ export function buildLayoutDefinition(config, defaults = {}, uiState = {}) {
   return { cellMeta, padMap };
 }
 
-function coordKey(x, y) {
-  return `${x}-${y}`;
-}
+
 
 function mod12(n) {
   return ((n % 12) + 12) % 12;

@@ -1,3 +1,5 @@
+import { coordKey } from "./utils.js";
+
 export const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
 
 export const MODES = [
@@ -39,8 +41,11 @@ export function mod(n, m) {
   return ((n % m) + m) % m;
 }
 
+/** Pitch classes of black-key / accidental notes: C#, D#, F#, G#, A# */
+const ACCIDENTAL_PITCH_CLASSES = new Set([1, 3, 6, 8, 10]);
+
 export function isAccidentalPc(pc) {
-  return [1, 3, 6, 8, 10].includes(mod(pc, 12));
+  return ACCIDENTAL_PITCH_CLASSES.has(mod(pc, 12));
 }
 
 export function isPitchClassInMode(pc, rootPc, mode) {
@@ -261,6 +266,3 @@ export function getActiveLayoutRowOffset(config, defaults) {
     : clampInt(config?.layoutRowOffsetScale, 1, 12, scaleFallback);
 }
 
-function coordKey(x, y) {
-  return `${x}-${y}`;
-}

@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "description": "Browser-based LinnStrument custom mode prototype with scale layouts.",
   "packageManager": "bun@1.3.8",
-  "main": "index.js",
   "scripts": {
     "build": "bun ./bin/updateLibs.js",
     "lint": "biome check --formatter-enabled=false --assist-enabled=false .",
