@@ -1138,8 +1138,52 @@ function handlePolyPressure(msg) {
     const outputNote = routed?.note ?? pad.outNote;
     const value = event.velocity;
 
-    // Keep key pressure as true poly-aftertouch tied to the mapped note.
+    if (isMpeModeEnabled()) {
+      // In MPE, use per-channel pressure on the active output channel.
+      sendLoopChannelAftertouch(value, outputChannel);
+      return;
+    }
+
+    // In non-MPE, preserve key-specific pressure as poly-aftertouch on ch1.
     sendLoopPolyAftertouch(outputNote, value, outputChannel);
+  }
+}
+
+function forwardPressureForInputChannel(
+  inputChannel,
+  pressureValue,
+  { allowNonMpeBroadcast = false } = {},
+) {
+  const value = clampInt(pressureValue, 0, 127, 0);
+  const heldPlayableEntriesOnChannel = Array.from(ext.state.routedNotesByPad.values()).filter(
+    (entry) => getRoutedInputChannel(entry) === inputChannel,
+  );
+  if (heldPlayableEntriesOnChannel.length === 0) {
+    return;
+  }
+
+  if (isMpeModeEnabled()) {
+    const outputChannels = listOutputChannelsForInputChannel(
+      Array.from(ext.state.routedNotesByPad.values()),
+      inputChannel,
+    );
+    outputChannels.forEach((outputChannel) => {
+      sendLoopChannelAftertouch(value, outputChannel);
+    });
+    return;
+  }
+
+  const uniqueNotes = new Set(heldPlayableEntriesOnChannel.map((entry) => entry.note));
+  if (uniqueNotes.size === 1) {
+    const [noteNumber] = uniqueNotes;
+    sendLoopPolyAftertouch(noteNumber, value, 1);
+    return;
+  }
+
+  if (allowNonMpeBroadcast) {
+    uniqueNotes.forEach((noteNumber) => {
+      sendLoopPolyAftertouch(noteNumber, value, 1);
+    });
   }
 }
 
@@ -1176,26 +1220,7 @@ function handleChannelAftertouch(msg) {
     sendLoopModWheel(getCurrentModWheelValue());
   }
 
-  const heldPlayableEntriesOnChannel = Array.from(ext.state.routedNotesByPad.values()).filter(
-    (entry) => getRoutedInputChannel(entry) === channel,
-  );
-
-  if (heldPlayableEntriesOnChannel.length > 0) {
-    if (isMpeModeEnabled()) {
-      const outputChannels = listOutputChannelsForInputChannel(
-        Array.from(ext.state.routedNotesByPad.values()),
-        channel,
-      );
-      outputChannels.forEach((outputChannel) => {
-        console.debug(`[main] handleChannelAftertouch (MPE): forwarding to loop ch ${outputChannel}`, { value });
-        sendLoopChannelAftertouch(value, outputChannel);
-      });
-    } else {
-      // In non-MPE mode, forward as global channel pressure on Channel 1
-      console.debug("[main] handleChannelAftertouch (non-MPE): forwarding to loop ch 1", { value });
-      sendLoopChannelAftertouch(value, 1);
-    }
-  }
+  forwardPressureForInputChannel(channel, value);
 }
 
 function handleControlChange(msg) {
@@ -1216,8 +1241,13 @@ function handleControlChange(msg) {
         ext.state.modPressuresByPad.set(touchId, pressure);
       });
       sendLoopModWheel(getCurrentModWheelValue());
+      return;
     }
-    return;
+    // No mod touch active: treat CC11 as pressure fallback and map it to aftertouch.
+    if (event.controller === 11) {
+      forwardPressureForInputChannel(event.channel, event.value7);
+      return;
+    }
   }
 
   // Handle MPE vs Standard CC forwarding

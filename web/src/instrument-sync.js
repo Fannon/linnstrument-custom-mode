@@ -4,6 +4,8 @@ export const NRPN = {
   SPLIT_LEFT_PER_NOTE_CHANNEL_START: 2,
   SPLIT_LEFT_PER_NOTE_CHANNEL_END: 17,
   SPLIT_LEFT_BEND_RANGE: 19,
+  SPLIT_LEFT_SEND_Z: 27,
+  SPLIT_LEFT_MIDI_EXPRESSION_FOR_Z: 28,
   SPLIT_RIGHT_BEND_RANGE: 119,
   SPLIT_LEFT_OCTAVE: 36,
   SPLIT_LEFT_TRANSPOSE_PITCH: 37,
@@ -47,6 +49,9 @@ export async function applyLinnStrumentMpeInputMode(output, enabled) {
     // Channel Per Note mode, main channel 1, member note channels 2..16.
     await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_MIDI_MODE, 1);
     await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_MAIN_CHANNEL, 1);
+    await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_SEND_Z, 1);
+    // In MPE mode, route Z to channel aftertouch.
+    await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_MIDI_EXPRESSION_FOR_Z, 1);
     for (let param = NRPN.SPLIT_LEFT_PER_NOTE_CHANNEL_START; param <= NRPN.SPLIT_LEFT_PER_NOTE_CHANNEL_END; param++) {
       const midiChannel = param - 1;
       await setLinnStrumentParamValue(output, param, midiChannel >= 2 ? 1 : 0);
@@ -57,4 +62,7 @@ export async function applyLinnStrumentMpeInputMode(output, enabled) {
   // One Channel mode on channel 1 for non-MPE operation.
   await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_MIDI_MODE, 0);
   await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_MAIN_CHANNEL, 1);
+  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_SEND_Z, 1);
+  // In non-MPE mode, route Z to poly aftertouch for key-independent pressure.
+  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_MIDI_EXPRESSION_FOR_Z, 0);
 }
