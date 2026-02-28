@@ -59,6 +59,7 @@ bun run start         # Dev server on localhost:3000
 | `midi-io.js` | ~110 | Port filtering, auto-detection, listener wiring |
 | `routing.js` | ~70 | Note key helpers, loop note tracking |
 | `ui-state.js` | ~60 | DOM `getValue`/`setValue`/`fillSelect` helpers |
+| `utils.js` | ~10 | Shared micro-helpers (e.g. `coordKey`) |
 
 ### Other Key Files
 

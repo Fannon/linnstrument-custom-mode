@@ -1,6 +1,7 @@
 import { log } from "./log.js";
 import { initConfig, persistConfig, clearPersistedConfig, defaultConfig } from "./config.js";
-import { resetGrid, getGridDict, generateGrid, drawGrid, coordKey } from "./grid.js";
+import { resetGrid, getGridDict, generateGrid, drawGrid } from "./grid.js";
+import { coordKey } from "./utils.js";
 import { PRESETS, buildLayoutDefinition as buildLayoutDefinitionCore } from "./layout-logic.js";
 import {
   CONTROL_OVERLAY_TRIGGER_COORD,
