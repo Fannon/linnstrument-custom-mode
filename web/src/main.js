@@ -114,7 +114,6 @@ export const ext = {
     backchannelCoordsByKey: new Map(),
     backchannelPadRefCount: new Map(),
     routedNotesByPad: new Map(),
-    pendingPitchBendByInputChannel: new Map(),
     activeLoopNotes: new Set(),
     recentLoopNoteOns: new Map(),
     modPressuresByPad: new Map(),
@@ -1077,8 +1076,6 @@ function handleNoteOn(msg) {
         sourceNoteNumber: event.noteNumber,
         sourceKey,
       });
-      const pendingBend14 = consumePendingPitchBendForInputChannel(event.channel);
-      sendLoopPitchBend14(pendingBend14 ?? 8192, outputChannel);
       sendLoopNoteOn(pad.outNote, event.velocity, outputChannel);
       refreshDetectedChord();
       refreshSameOutputNoteHighlights(pad.outNote);
@@ -1265,18 +1262,11 @@ function handleControlChange(msg) {
 function handlePitchBend(msg) {
   const channel = getChannel(msg);
   const value14 = getPitchBend14(msg);
-  const scaled14 = scalePitchBendForConfig(value14, msg);
+  const scaled14 = scalePitchBendForConfig(value14);
 
   if (!shouldForwardPitchBendOnChannel(channel)) {
-    if (value14 === 8192) {
-      ext.state.pendingPitchBendByInputChannel.delete(channel);
-      return;
-    }
-    bufferPendingPitchBendForInputChannel(channel, value14, msg);
     return;
   }
-
-  ext.state.pendingPitchBendByInputChannel.delete(channel);
 
   if (!isMpeModeEnabled()) {
     if (shouldSuppressNonMpePitchBend()) {
@@ -1833,7 +1823,6 @@ function allNotesOff() {
   }
   ext.state.activeLoopNotes.clear();
   ext.state.routedNotesByPad.clear();
-  ext.state.pendingPitchBendByInputChannel.clear();
   ext.state.recentLoopNoteOns.clear();
   ext.state.lastPitchBend14ByChannel.clear();
   ext.state.detectedChordName = "";
@@ -1854,7 +1843,6 @@ function clearHeldState() {
   ext.state.modPressuresByPad.clear();
   ext.state.modChannelsByPad.clear();
   ext.state.routedNotesByPad.clear();
-  ext.state.pendingPitchBendByInputChannel.clear();
   ext.state.activeLoopNotes.clear();
   ext.state.recentLoopNoteOns.clear();
   ext.state.lastPitchBend14ByChannel.clear();
@@ -1867,7 +1855,6 @@ function hasTransientPerformanceState() {
     || ext.state.modPressuresByPad.size > 0
     || ext.state.modChannelsByPad.size > 0
     || ext.state.routedNotesByPad.size > 0
-    || ext.state.pendingPitchBendByInputChannel.size > 0
     || ext.state.activeLoopNotes.size > 0
     || ext.state.recentLoopNoteOns.size > 0
     || ext.state.lastPitchBend14ByChannel.size > 0;
@@ -2202,8 +2189,7 @@ function getChannel(msg) {
   return msg?.message?.channel ?? msg?.channel ?? 1;
 }
 
-function scalePitchBendForConfig(value14, msg = null) {
-  void msg;
+function scalePitchBendForConfig(value14) {
   // LinnStrument horizontal movement resolves to ~0.5 semitone per pad at
   // fixed ±48 PB range. Scale incoming bend so the UI setting remains
   // semitones-per-pad as labeled.
@@ -2233,43 +2219,6 @@ function enforceFixedPitchBendRangeConfig({ persist = false, reason = "" } = {})
   if (changed && reason) {
     log.info(`Forced pitch bend range to ±${fixed} semitones (${reason}).`);
   }
-}
-
-function bufferPendingPitchBendForInputChannel(channel, value14, msg) {
-  if (!Number.isFinite(channel)) {
-    return;
-  }
-  ext.state.pendingPitchBendByInputChannel.set(channel, {
-    value14,
-    atMs: performance.now(),
-    source: msg?.__inputSource || "unknown",
-  });
-  if (DEBUG_MIDI_FLOW) {
-    const line = `[rx bend buffered] src=${msg?.__inputSource || "unknown"} ch=${channel} value14=${value14}`;
-    log.info(line);
-    console.debug(line);
-  }
-}
-
-function consumePendingPitchBendForInputChannel(channel, maxAgeMs = 160) {
-  if (!Number.isFinite(channel)) {
-    return null;
-  }
-  const pending = ext.state.pendingPitchBendByInputChannel.get(channel);
-  if (!pending) {
-    return null;
-  }
-  ext.state.pendingPitchBendByInputChannel.delete(channel);
-  if (performance.now() - pending.atMs > maxAgeMs) {
-    return null;
-  }
-  const scaled = scalePitchBendForConfig(pending.value14, { __inputSource: pending.source });
-  if (DEBUG_MIDI_FLOW) {
-    const line = `[rx bend consumed] src=${pending.source} ch=${channel} value14=${pending.value14} scaled14=${scaled}`;
-    log.info(line);
-    console.debug(line);
-  }
-  return scaled;
 }
 
 function shouldForwardPitchBendOnChannel(channel) {
