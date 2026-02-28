@@ -71,13 +71,33 @@ export function findCoordByRoutedNote(routedNotesByPad, channel, noteNumber) {
 }
 
 export function extractRawTouchEvent(msg) {
-  const noteNumber = msg?.note?.number ?? msg?.dataBytes?.[0];
+  // WebMidi v3 'noteon', 'noteoff', 'keyaftertouch' messages provide structured data.
+  // We prefer the raw integers to avoid precision loss from normalization.
+  const noteNumber = msg?.note?.number ?? msg?.dataBytes?.[0] ?? (msg?.data?.[1] & 0x7f);
   if (!Number.isFinite(noteNumber)) {
     return null;
   }
 
   const channel = getChannel(msg);
-  const velocity = msg.rawVelocity ?? msg.rawValue ?? 0;
+
+  // Status byte is in msg.data[0]. msg.data is the full MIDI message [Status, Data1, Data2].
+  // Data2 (velocity/pressure) is at msg.data[2] for 3-byte messages.
+  let rawValue = 0;
+  if (msg?.data && msg.data.length >= 3) {
+    rawValue = msg.data[2];
+  } else if (msg?.dataBytes && msg.dataBytes.length >= 2) {
+    rawValue = msg.dataBytes[1];
+  } else {
+    // Fallback to WebMidi properties
+    rawValue = msg?.rawVelocity ?? msg?.rawValue ?? msg?.velocity ?? msg?.value ?? 0;
+  }
+
+  // Handle normalization if the value came from normalized 'velocity' or 'value'
+  const velocity =
+    typeof rawValue === "number" && rawValue >= 0 && rawValue <= 1 && !msg?.rawVelocity && !msg?.rawValue
+      ? clampInt(Math.round(rawValue * 127), 0, 127, 0)
+      : clampInt(rawValue, 0, 127, 0);
+
   return {
     noteNumber,
     channel,

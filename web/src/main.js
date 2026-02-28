@@ -1123,25 +1123,30 @@ function handlePolyPressure(msg) {
     return;
   }
   if (pad.role === "mod") {
-    setModPressure(event.coord, msg.rawValue ?? event.velocity, event.channel, event.noteNumber);
+    setModPressure(event.coord, event.velocity, event.channel, event.noteNumber);
     return;
   }
 
   if (pad.role === "play-note") {
     const routed = ext.state.routedNotesByPad.get(event.coord);
     const outputChannel = routed?.channel ?? 1;
-    const value = msg.rawValue ?? 0;
-    if (isMpeModeEnabled()) {
-      sendLoopChannelAftertouch(value, outputChannel);
-    } else {
-      sendLoopPolyAftertouch(pad.outNote, value, outputChannel);
-    }
+    const value = event.velocity;
+
+    // Standard MPE uses Channel Pressure on the member channel.
+    // In non-MPE mode, we also send Channel Pressure (usually on Ch 1) 
+    // because many synths do not support Poly Aftertouch.
+    sendLoopChannelAftertouch(value, outputChannel);
   }
 }
 
 function handleChannelAftertouch(msg) {
   const channel = getChannel(msg);
-  const value = msg.rawValue ?? 0;
+
+  const rawValue = msg?.rawValue ?? msg?.value ?? msg?.data?.[1] ?? msg?.dataBytes?.[0] ?? 0;
+  const value =
+    typeof rawValue === "number" && rawValue >= 0 && rawValue <= 1 && !msg?.rawValue
+      ? clampInt(Math.round(rawValue * 127), 0, 127, 0)
+      : clampInt(rawValue, 0, 127, 0);
 
   const heldModCoordsOnChannel = Array.from(ext.state.modChannelsByPad.entries())
     .filter(([_touchId, ch]) => ch === channel)
@@ -1169,15 +1174,8 @@ function handleChannelAftertouch(msg) {
         sendLoopChannelAftertouch(value, outputChannel);
       });
     } else {
-      const uniqueNoteKeys = new Set();
-      heldPlayableEntriesOnChannel.forEach((entry) => {
-        const key = noteKey(entry.channel, entry.note);
-        if (uniqueNoteKeys.has(key)) {
-          return;
-        }
-        uniqueNoteKeys.add(key);
-        sendLoopPolyAftertouch(entry.note, value, entry.channel);
-      });
+      // In non-MPE mode, forward as global channel pressure on Channel 1
+      sendLoopChannelAftertouch(value, 1);
     }
   }
 }
@@ -1198,9 +1196,8 @@ function handleControlChange(msg) {
   }
 
   if (!isMpeModeEnabled()) {
-    if (ext.state.routedNotesByPad.size > 0) {
-      sendLoopControlChange(74, event.value7, 1);
-    }
+    // CC74 is an MPE-specific timbre controller.
+    // In non-MPE mode, we do NOT forward it to avoid confusion or ghost modulation.
     return;
   }
 
@@ -1353,7 +1350,11 @@ function handleBackchannelNoteOn(msg) {
   if (!Number.isFinite(noteNumber)) {
     return;
   }
-  const velocity = Number(msg?.rawVelocity ?? msg?.rawValue ?? 0);
+  const rawVelocity = msg?.rawVelocity ?? msg?.rawValue ?? msg?.velocity ?? msg?.value ?? msg?.dataBytes?.[1] ?? 0;
+  const velocity =
+    typeof rawVelocity === "number" && rawVelocity >= 0 && rawVelocity <= 1 && !msg?.rawVelocity && !msg?.rawValue
+      ? clampInt(Math.round(rawVelocity * 127), 0, 127, 0)
+      : clampInt(rawVelocity, 0, 127, 0);
   if (velocity <= 0) {
     handleBackchannelNoteOff(msg);
     return;
