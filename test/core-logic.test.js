@@ -84,17 +84,17 @@ describe("core-logic", () => {
 
   test("isPitchClassInMode checks membership against selected tonic", () => {
     const major = MODES.find((mode) => mode.id === "major");
-    expect(isPitchClassInMode(0, 0, major)).toBe(true);  // C in C major
+    expect(isPitchClassInMode(0, 0, major)).toBe(true); // C in C major
     expect(isPitchClassInMode(1, 0, major)).toBe(false); // C# in C major
     expect(isPitchClassInMode(1, 11, major)).toBe(true); // C# in B major
   });
 
   test("scaleNoteAt maps scale degrees across octaves and negatives", () => {
     const major = MODES.find((mode) => mode.id === "major");
-    expect(scaleNoteAt(60, major, 0)).toBe(60);  // C
-    expect(scaleNoteAt(60, major, 1)).toBe(62);  // D
-    expect(scaleNoteAt(60, major, 6)).toBe(71);  // B
-    expect(scaleNoteAt(60, major, 7)).toBe(72);  // next C
+    expect(scaleNoteAt(60, major, 0)).toBe(60); // C
+    expect(scaleNoteAt(60, major, 1)).toBe(62); // D
+    expect(scaleNoteAt(60, major, 6)).toBe(71); // B
+    expect(scaleNoteAt(60, major, 7)).toBe(72); // next C
     expect(scaleNoteAt(60, major, -1)).toBe(59); // previous B
   });
 

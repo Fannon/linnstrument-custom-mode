@@ -62,12 +62,15 @@ describe("mpe-routing", () => {
   });
 
   test("lists unique output channels for a specific input channel", () => {
-    const channels = listOutputChannelsForInputChannel([
-      { sourceChannel: 1, channel: 2 },
-      { sourceChannel: 1, channel: 3 },
-      { sourceChannel: 1, channel: 3 },
-      { sourceChannel: 2, channel: 4 },
-    ], 1);
+    const channels = listOutputChannelsForInputChannel(
+      [
+        { sourceChannel: 1, channel: 2 },
+        { sourceChannel: 1, channel: 3 },
+        { sourceChannel: 1, channel: 3 },
+        { sourceChannel: 2, channel: 4 },
+      ],
+      1,
+    );
     expect(channels.sort((a, b) => a - b)).toEqual([2, 3]);
   });
 });

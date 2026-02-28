@@ -139,13 +139,7 @@ function patchSurfaceGrid(surface, grid, cellMeta, padSize) {
 }
 
 function applyCellPresentation(cellEl, options) {
-  const {
-    x,
-    y,
-    noteNumber,
-    meta = {},
-    padSize,
-  } = options;
+  const { x, y, noteNumber, meta = {}, padSize } = options;
 
   const label = meta.label || midiNoteLabel(noteNumber);
   const subLabel = meta.subLabel || "";

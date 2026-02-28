@@ -229,9 +229,9 @@ export function resolveNoOverlapPadCoord(noteNumber, channel, options = {}) {
   const x = mod(noteNumber - columnPhase, columns);
   const rowFromChannel = options.assumeRowChannels
     ? rowIndexFromChannel(channel, {
-      perRowLowestChannel: options.perRowLowestChannel,
-      rowChannelOrderReversed: options.rowChannelOrderReversed,
-    })
+        perRowLowestChannel: options.perRowLowestChannel,
+        rowChannelOrderReversed: options.rowChannelOrderReversed,
+      })
     : null;
   const y = rowFromChannel ?? Math.floor(noteNumber / columns);
 

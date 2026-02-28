@@ -90,5 +90,4 @@ describe("config", () => {
     expect(config.loopInputPort).toBe(saved.loopInputPort);
     expect(config.portSelectionLocked).toBe(true);
   });
-
 });

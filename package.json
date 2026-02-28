@@ -6,6 +6,8 @@
   "main": "index.js",
   "scripts": {
     "build": "bun ./bin/updateLibs.js",
+    "lint": "biome check --formatter-enabled=false --assist-enabled=false .",
+    "format:check": "biome check --linter-enabled=false --assist-enabled=false .",
     "test:unit": "bun test test",
     "test:syntax": "node --check web/src/main.js && node --check web/src/grid.js && node --check web/src/config.js && node --check web/src/log.js && node --check web/src/core-logic.js && node --check web/src/layout-logic.js && node --check web/src/control-overlay.js && node --check web/src/mpe-routing.js && node --check web/src/mpe-voice-allocator.js",
     "test": "bun run test:unit && bun run test:syntax",
@@ -32,6 +34,7 @@
     "webmidi": "^3.1.12"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.4",
     "@playwright/test": "^1.58.2",
     "gh-pages": "^6.3.0"
   }

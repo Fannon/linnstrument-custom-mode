@@ -101,13 +101,16 @@ describe("layout-logic buildLayoutDefinition", () => {
   });
 
   test("overlay-off layout uses rows above mod row as playable surface", () => {
-    const { cellMeta, padMap } = buildWithOverlay({
-      selectedKey: 0,
-      selectedModeId: "major",
-      allNotesEnabled: false,
-      baseRootC: 36,
-      layoutRowOffsetScale: 4,
-    }, { controlOverlayActive: false });
+    const { cellMeta, padMap } = buildWithOverlay(
+      {
+        selectedKey: 0,
+        selectedModeId: "major",
+        allNotesEnabled: false,
+        baseRootC: 36,
+        layoutRowOffsetScale: 4,
+      },
+      { controlOverlayActive: false },
+    );
 
     expect(padMap["0-1"].role).toBe("play-note");
     expect(padMap["0-1"].outNote).toBe(36); // C2 now starts on y=1
@@ -119,20 +122,26 @@ describe("layout-logic buildLayoutDefinition", () => {
   });
 
   test("overlay-on playable rows keep stable scale mapping and mark tonic/in-scale", () => {
-    const overlayOff = buildWithOverlay({
-      selectedKey: 0,
-      selectedModeId: "major",
-      allNotesEnabled: false,
-      baseRootC: 36,
-      layoutRowOffsetScale: 4,
-    }, { controlOverlayActive: false });
-    const { cellMeta, padMap } = buildWithOverlay({
-      selectedKey: 0,
-      selectedModeId: "major",
-      allNotesEnabled: false,
-      baseRootC: 36,
-      layoutRowOffsetScale: 4,
-    }, { controlOverlayActive: true });
+    const overlayOff = buildWithOverlay(
+      {
+        selectedKey: 0,
+        selectedModeId: "major",
+        allNotesEnabled: false,
+        baseRootC: 36,
+        layoutRowOffsetScale: 4,
+      },
+      { controlOverlayActive: false },
+    );
+    const { cellMeta, padMap } = buildWithOverlay(
+      {
+        selectedKey: 0,
+        selectedModeId: "major",
+        allNotesEnabled: false,
+        baseRootC: 36,
+        layoutRowOffsetScale: 4,
+      },
+      { controlOverlayActive: true },
+    );
 
     expect(padMap["0-3"].role).toBe("play-note");
     expect(padMap["0-3"].outNote).toBe(overlayOff.padMap["0-3"].outNote);
@@ -148,22 +157,28 @@ describe("layout-logic buildLayoutDefinition", () => {
   });
 
   test("overlay-on all-notes mode keeps row mapping stable and still tracks inSelectedScale", () => {
-    const overlayOff = buildWithOverlay({
-      selectedKey: 0,
-      selectedModeId: "major",
-      allNotesEnabled: true,
-      baseRootC: 36,
-      layoutRowOffsetScale: 4,
-      layoutRowOffsetAllNotes: 5,
-    }, { controlOverlayActive: false });
-    const { cellMeta, padMap } = buildWithOverlay({
-      selectedKey: 0,
-      selectedModeId: "major",
-      allNotesEnabled: true,
-      baseRootC: 36,
-      layoutRowOffsetScale: 4,
-      layoutRowOffsetAllNotes: 5,
-    }, { controlOverlayActive: true });
+    const overlayOff = buildWithOverlay(
+      {
+        selectedKey: 0,
+        selectedModeId: "major",
+        allNotesEnabled: true,
+        baseRootC: 36,
+        layoutRowOffsetScale: 4,
+        layoutRowOffsetAllNotes: 5,
+      },
+      { controlOverlayActive: false },
+    );
+    const { cellMeta, padMap } = buildWithOverlay(
+      {
+        selectedKey: 0,
+        selectedModeId: "major",
+        allNotesEnabled: true,
+        baseRootC: 36,
+        layoutRowOffsetScale: 4,
+        layoutRowOffsetAllNotes: 5,
+      },
+      { controlOverlayActive: true },
+    );
 
     expect(padMap["0-3"].outNote).toBe(overlayOff.padMap["0-3"].outNote);
     expect(padMap["0-3"].outNote).toBe(46);
@@ -178,10 +193,7 @@ describe("layout-logic buildLayoutDefinition", () => {
   });
 
   test("MPE toggle reflects disabled state in control overlay", () => {
-    const { cellMeta, padMap } = buildWithOverlay(
-      { mpeEnabled: false },
-      { controlOverlayActive: true },
-    );
+    const { cellMeta, padMap } = buildWithOverlay({ mpeEnabled: false }, { controlOverlayActive: true });
     expect(cellMeta["15-1"].zone).toBe("mpe");
     expect(cellMeta["15-1"].label).toBe("MPE");
     expect(cellMeta["15-1"].selected).toBe(false);
@@ -189,14 +201,8 @@ describe("layout-logic buildLayoutDefinition", () => {
   });
 
   test("layout switch control reflects current preset label", () => {
-    const scale = buildWithOverlay(
-      { presetId: SCALE_MODE_PRESET.id },
-      { controlOverlayActive: true },
-    );
-    const mech = buildWithOverlay(
-      { presetId: MIDIMECH_PRESET.id },
-      { controlOverlayActive: true },
-    );
+    const scale = buildWithOverlay({ presetId: SCALE_MODE_PRESET.id }, { controlOverlayActive: true });
+    const mech = buildWithOverlay({ presetId: MIDIMECH_PRESET.id }, { controlOverlayActive: true });
 
     expect(scale.cellMeta["14-1"].zone).toBe("preset-switch");
     expect(scale.cellMeta["14-1"].subLabel).toBe("Scale");
@@ -205,10 +211,7 @@ describe("layout-logic buildLayoutDefinition", () => {
   });
 
   test("midimech preset keeps overlay trigger + modwheel row behavior", () => {
-    const { cellMeta, padMap } = buildWithOverlay(
-      { presetId: MIDIMECH_PRESET.id },
-      { controlOverlayActive: false },
-    );
+    const { cellMeta, padMap } = buildWithOverlay({ presetId: MIDIMECH_PRESET.id }, { controlOverlayActive: false });
 
     expect(cellMeta["0-0"].zone).toBe("overlay-trigger");
     expect(padMap["0-0"].role).toBe("control-overlay-trigger");

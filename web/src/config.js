@@ -40,13 +40,9 @@ export function initConfig() {
     const parsed = JSON.parse(raw) || {};
     const next = {};
     Object.keys(defaultConfig).forEach((key) => {
-      next[key] = Object.prototype.hasOwnProperty.call(parsed, key)
-        ? parsed[key]
-        : defaultConfig[key];
+      next[key] = Object.hasOwn(parsed, key) ? parsed[key] : defaultConfig[key];
     });
-    next.selectedModeId = MODE_IDS.has(next.selectedModeId)
-      ? next.selectedModeId
-      : defaultConfig.selectedModeId;
+    next.selectedModeId = MODE_IDS.has(next.selectedModeId) ? next.selectedModeId : defaultConfig.selectedModeId;
     return next;
   } catch (err) {
     console.warn("Ignoring invalid stored config", err);

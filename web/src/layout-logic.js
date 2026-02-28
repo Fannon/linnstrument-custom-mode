@@ -12,14 +12,16 @@ export const PRESETS = [
   {
     id: "scale-mode-basic-v1",
     name: "Scale Mode (Mod row + Overlay key/mode controls)",
-    description: "Bottom row sends modwheel from pressure (except control-overlay trigger). Hold/tap the trigger to access key/mode controls; other rows output scale notes.",
+    description:
+      "Bottom row sends modwheel from pressure (except control-overlay trigger). Hold/tap the trigger to access key/mode controls; other rows output scale notes.",
     playableRowsStart: 3,
     columnStep: 1,
   },
   {
     id: "midimech-v1",
     name: "Midimech (Whole-tone columns + Overlay controls)",
-    description: "Bottom row sends modwheel from pressure (except control-overlay trigger). Playable rows use Midimech-style geometry: +2 semitones per column and configurable row offset.",
+    description:
+      "Bottom row sends modwheel from pressure (except control-overlay trigger). Playable rows use Midimech-style geometry: +2 semitones per column and configurable row offset.",
     playableRowsStart: 3,
     columnStep: 2,
   },

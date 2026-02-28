@@ -93,10 +93,7 @@ const AUTO_APPLY_RECONNECT_FIELD_IDS = new Set([
   "loopOutputPort",
   "loopInputPort",
 ]);
-const HIDDEN_MIDI_PORT_NAMES = new Set([
-  "midinous clock port",
-  "touchosc bridge",
-]);
+const HIDDEN_MIDI_PORT_NAMES = new Set(["midinous clock port", "touchosc bridge"]);
 
 export const ext = {
   config: {},
@@ -260,11 +257,14 @@ function bindUi() {
     setAllNotesMode(true, { trigger: "all-notes-ui" });
   });
 
-  window.addEventListener("resize", debounce(() => {
-    drawGrid(ext.grid, ext.layout.cellMeta);
-    paintInstrumentLayout();
-    refreshHeldCellClasses();
-  }, 120));
+  window.addEventListener(
+    "resize",
+    debounce(() => {
+      drawGrid(ext.grid, ext.layout.cellMeta);
+      paintInstrumentLayout();
+      refreshHeldCellClasses();
+    }, 120),
+  );
 
   bindSurfacePointerInput();
 }
@@ -383,12 +383,7 @@ function readConfigFromUi() {
   );
   const selectedModeIdRaw = getValue("stateScaleSelect") || ext.config.selectedModeId || defaultConfig.selectedModeId;
   const selectedModeId = MODE_BY_ID[selectedModeIdRaw] ? selectedModeIdRaw : defaultConfig.selectedModeId;
-  const layoutRowOffsetScale = clampInt(
-    getValue("layoutRowOffsetScale"),
-    1,
-    12,
-    defaultConfig.layoutRowOffsetScale,
-  );
+  const layoutRowOffsetScale = clampInt(getValue("layoutRowOffsetScale"), 1, 12, defaultConfig.layoutRowOffsetScale);
   const layoutRowOffsetAllNotes = clampInt(
     getValue("layoutRowOffsetAllNotes"),
     1,
@@ -457,34 +452,26 @@ function refreshPortSelectors({ autoSelectInstrument = false } = {}) {
   const inputNames = listVisiblePortNames(WebMidi.inputs);
   const outputNames = listVisiblePortNames(WebMidi.outputs);
   const current = {
-    instrumentInputPort: sanitizeSelectedPortName(getValue("instrumentInputPort") || ext.config.instrumentInputPort || ""),
-    instrumentOutputPort: sanitizeSelectedPortName(getValue("instrumentOutputPort") || ext.config.instrumentOutputPort || ""),
+    instrumentInputPort: sanitizeSelectedPortName(
+      getValue("instrumentInputPort") || ext.config.instrumentInputPort || "",
+    ),
+    instrumentOutputPort: sanitizeSelectedPortName(
+      getValue("instrumentOutputPort") || ext.config.instrumentOutputPort || "",
+    ),
     loopOutputPort: sanitizeSelectedPortName(getValue("loopOutputPort") || ext.config.loopOutputPort || ""),
     loopInputPort: sanitizeSelectedPortName(getValue("loopInputPort") || ext.config.loopInputPort || ""),
   };
 
-  fillSelect(
-    document.getElementById("instrumentInputPort"),
-    inputNames,
-    current.instrumentInputPort,
-  );
-  fillSelect(
-    document.getElementById("instrumentOutputPort"),
-    outputNames,
-    current.instrumentOutputPort,
-  );
-  fillSelect(
-    document.getElementById("loopOutputPort"),
-    outputNames,
-    current.loopOutputPort,
-    { includeEmpty: true, emptyLabel: "(none)" },
-  );
-  fillSelect(
-    document.getElementById("loopInputPort"),
-    inputNames,
-    current.loopInputPort,
-    { includeEmpty: true, emptyLabel: "(none)" },
-  );
+  fillSelect(document.getElementById("instrumentInputPort"), inputNames, current.instrumentInputPort);
+  fillSelect(document.getElementById("instrumentOutputPort"), outputNames, current.instrumentOutputPort);
+  fillSelect(document.getElementById("loopOutputPort"), outputNames, current.loopOutputPort, {
+    includeEmpty: true,
+    emptyLabel: "(none)",
+  });
+  fillSelect(document.getElementById("loopInputPort"), inputNames, current.loopInputPort, {
+    includeEmpty: true,
+    emptyLabel: "(none)",
+  });
 
   if (autoSelectInstrument) {
     autoSelectLinnStrumentPorts();
@@ -497,7 +484,7 @@ function refreshPortSelectors({ autoSelectInstrument = false } = {}) {
 }
 
 function shouldAutoSelectPorts() {
-  return !Boolean(ext.config.portSelectionLocked);
+  return !ext.config.portSelectionLocked;
 }
 
 function fillSelect(selectEl, names, selected, options = {}) {
@@ -507,9 +494,11 @@ function fillSelect(selectEl, names, selected, options = {}) {
 
   const { includeEmpty = true, emptyLabel = "(none)" } = options;
   const normalizedSelected = typeof selected === "string" ? selected : "";
-  const uniqueNames = Array.from(new Set((Array.isArray(names) ? names : [])
-    .map((name) => String(name || "").trim())
-    .filter((name) => name.length > 0)));
+  const uniqueNames = Array.from(
+    new Set(
+      (Array.isArray(names) ? names : []).map((name) => String(name || "").trim()).filter((name) => name.length > 0),
+    ),
+  );
   selectEl.innerHTML = "";
 
   if (includeEmpty) {
@@ -585,7 +574,9 @@ function listVisiblePortNames(ports) {
 }
 
 function isHiddenMidiPortName(name) {
-  const normalized = String(name || "").trim().toLowerCase();
+  const normalized = String(name || "")
+    .trim()
+    .toLowerCase();
   return normalized ? HIDDEN_MIDI_PORT_NAMES.has(normalized) : false;
 }
 
@@ -609,7 +600,9 @@ async function connectMidiFromConfig() {
     if (candidateInstrumentInput) {
       if (isPotentialFeedbackInput(candidateInstrumentInput.name, ext.config.loopOutputPort)) {
         ext.midi.instrumentInput = null;
-        log.error(`Instrument input "${candidateInstrumentInput.name}" matches loop output. Disabled instrument input to prevent MIDI feedback.`);
+        log.error(
+          `Instrument input "${candidateInstrumentInput.name}" matches loop output. Disabled instrument input to prevent MIDI feedback.`,
+        );
       } else {
         ext.midi.instrumentInput = candidateInstrumentInput;
         attachInstrumentInputListeners(ext.midi.instrumentInput);
@@ -788,12 +781,7 @@ function createSurfaceTouchEventFromCoord(coord, velocity = 100) {
     return null;
   }
   const columns = ext.config.linnStrumentSize / 8;
-  const deviceStartNote = clampInt(
-    ext.config.deviceStartNote,
-    0,
-    127,
-    defaultConfig.deviceStartNote,
-  );
+  const deviceStartNote = clampInt(ext.config.deviceStartNote, 0, 127, defaultConfig.deviceStartNote);
   const noteIndex = y * columns + x;
 
   return {
@@ -866,11 +854,7 @@ function handleControlOverlayTriggerRelease(event) {
 }
 
 function applySelectedKey(keyPc, options = {}) {
-  const {
-    trigger = "key",
-    flashCoord = null,
-    flashPitchClass = true,
-  } = options;
+  const { trigger = "key", flashCoord = null, flashPitchClass = true } = options;
   const nextKey = mod(keyPc, 12);
   const hadTransientState = hasTransientPerformanceState();
   if (hadTransientState) {
@@ -898,10 +882,7 @@ function applySelectedKey(keyPc, options = {}) {
 }
 
 function applySelectedMode(modeId, options = {}) {
-  const {
-    trigger = "scale",
-    flashCoord = null,
-  } = options;
+  const { trigger = "scale", flashCoord = null } = options;
   if (!MODE_BY_ID[modeId]) {
     setValue("stateScaleSelect", ext.config.selectedModeId ?? defaultConfig.selectedModeId);
     return false;
@@ -924,10 +905,7 @@ function applySelectedMode(modeId, options = {}) {
 }
 
 function setAllNotesMode(enabled, options = {}) {
-  const {
-    trigger = "all-notes",
-    flashCoord = null,
-  } = options;
+  const { trigger = "all-notes", flashCoord = null } = options;
   const nextValue = Boolean(enabled);
 
   if (Boolean(ext.config.allNotesEnabled) === nextValue) {
@@ -940,7 +918,9 @@ function setAllNotesMode(enabled, options = {}) {
   if (flashCoord) {
     flashSelection(flashCoord);
   }
-  log.info(`All notes ${ext.config.allNotesEnabled ? "enabled" : "disabled"} (selected scale remains ${MODE_BY_ID[ext.config.selectedModeId]?.name || ext.config.selectedModeId}).`);
+  log.info(
+    `All notes ${ext.config.allNotesEnabled ? "enabled" : "disabled"} (selected scale remains ${MODE_BY_ID[ext.config.selectedModeId]?.name || ext.config.selectedModeId}).`,
+  );
   logActiveState(trigger);
   return nextValue;
 }
@@ -950,10 +930,7 @@ function toggleAllNotesMode(options = {}) {
 }
 
 function togglePresetLayout(options = {}) {
-  const {
-    trigger = "preset",
-    flashCoord = null,
-  } = options;
+  const { trigger = "preset", flashCoord = null } = options;
 
   const currentIndex = PRESETS.findIndex((preset) => preset.id === ext.config.presetId);
   const normalizedIndex = currentIndex >= 0 ? currentIndex : 0;
@@ -975,10 +952,7 @@ function togglePresetLayout(options = {}) {
 }
 
 function setMpeModeEnabled(enabled, options = {}) {
-  const {
-    trigger = "mpe",
-    flashCoord = null,
-  } = options;
+  const { trigger = "mpe", flashCoord = null } = options;
   const nextValue = Boolean(enabled);
   if (isMpeModeEnabled() === nextValue) {
     return nextValue;
@@ -992,7 +966,9 @@ function setMpeModeEnabled(enabled, options = {}) {
   if (flashCoord) {
     flashSelection(flashCoord);
   }
-  log.info(`MPE routing ${nextValue ? "enabled" : "disabled"} (${nextValue ? "notes/pitch bend on source channels" : "notes/pitch bend forced to channel 1"}).`);
+  log.info(
+    `MPE routing ${nextValue ? "enabled" : "disabled"} (${nextValue ? "notes/pitch bend on source channels" : "notes/pitch bend forced to channel 1"}).`,
+  );
   logActiveState(trigger);
   return nextValue;
 }
@@ -1222,8 +1198,9 @@ function handleChannelAftertouch(msg) {
     sendLoopModWheel(pressure);
   }
 
-  const heldPlayableEntriesOnChannel = Array.from(ext.state.routedNotesByPad.values())
-    .filter((entry) => getRoutedInputChannel(entry) === channel);
+  const heldPlayableEntriesOnChannel = Array.from(ext.state.routedNotesByPad.values()).filter(
+    (entry) => getRoutedInputChannel(entry) === channel,
+  );
 
   if (heldPlayableEntriesOnChannel.length > 0) {
     if (isMpeModeEnabled()) {
@@ -1297,10 +1274,7 @@ function handlePitchBend(msg) {
     return;
   }
 
-  const outputChannels = listOutputChannelsForInputChannel(
-    Array.from(ext.state.routedNotesByPad.values()),
-    channel,
-  );
+  const outputChannels = listOutputChannelsForInputChannel(Array.from(ext.state.routedNotesByPad.values()), channel);
   outputChannels.forEach((outputChannel) => {
     sendLoopPitchBend14(scaled14, outputChannel);
   });
@@ -1339,9 +1313,10 @@ function extractRawControlChangeEvent(msg) {
   }
 
   const rawValue = msg?.rawValue ?? msg?.value ?? msg?.dataBytes?.[1];
-  const value7 = typeof rawValue === "number" && rawValue >= 0 && rawValue <= 1
-    ? clampInt(Math.round(rawValue * 127), 0, 127, 0)
-    : clampInt(rawValue, 0, 127, 0);
+  const value7 =
+    typeof rawValue === "number" && rawValue >= 0 && rawValue <= 1
+      ? clampInt(Math.round(rawValue * 127), 0, 127, 0)
+      : clampInt(rawValue, 0, 127, 0);
 
   return {
     controller,
@@ -1439,12 +1414,7 @@ function extractRawTouchEvent(msg) {
 }
 
 function resolvePadCoord(noteNumber, channel) {
-  const deviceStartNote = clampInt(
-    ext.config.deviceStartNote,
-    0,
-    127,
-    defaultConfig.deviceStartNote,
-  );
+  const deviceStartNote = clampInt(ext.config.deviceStartNote, 0, 127, defaultConfig.deviceStartNote);
   const wrappedIndex = mod(noteNumber - deviceStartNote, 128);
   return resolveNoOverlapPadCoordCore(wrappedIndex, channel, {
     columns: ext.config.linnStrumentSize / 8,
@@ -1473,7 +1443,9 @@ function handleBackchannelNoteOn(msg) {
 
   const coords = findPlayableCoordsByOutputNote(noteNumber);
   ext.state.backchannelCoordsByKey.set(inputKey, coords);
-  coords.forEach((coord) => addBackchannelPadHighlight(coord));
+  coords.forEach((coord) => {
+    addBackchannelPadHighlight(coord);
+  });
 }
 
 function handleBackchannelNoteOff(msg) {
@@ -1521,7 +1493,9 @@ function rehydrateBackchannelHighlights() {
   active.forEach(([inputKey, noteNumber]) => {
     const coords = findPlayableCoordsByOutputNote(noteNumber);
     ext.state.backchannelCoordsByKey.set(inputKey, coords);
-    coords.forEach((coord) => addBackchannelPadHighlight(coord));
+    coords.forEach((coord) => {
+      addBackchannelPadHighlight(coord);
+    });
   });
 }
 
@@ -1532,7 +1506,9 @@ function clearBackchannelHighlightForKey(inputKey) {
   }
 
   const coords = ext.state.backchannelCoordsByKey.get(inputKey) || [];
-  coords.forEach((coord) => removeBackchannelPadHighlight(coord));
+  coords.forEach((coord) => {
+    removeBackchannelPadHighlight(coord);
+  });
   ext.state.backchannelCoordsByKey.delete(inputKey);
   ext.state.backchannelNotesByKey.delete(inputKey);
   return true;
@@ -1672,9 +1648,10 @@ function refreshInstrumentSameOutputNoteHighlights(noteNumber) {
       continue;
     }
 
-    const color = hasActive && !activeCoordsForNote.has(coord)
-      ? INSTRUMENT_COLORS.sameNote
-      : getInstrumentColorForMeta(meta, coord);
+    const color =
+      hasActive && !activeCoordsForNote.has(coord)
+        ? INSTRUMENT_COLORS.sameNote
+        : getInstrumentColorForMeta(meta, coord);
     highlightInstrumentXY(x, y, color);
   }
 }
@@ -1829,7 +1806,9 @@ async function resendPitchBendRangeFromConfig() {
       console.warn("Failed to resend LinnStrument bend range", err);
     }
   }
-  log.info(`Resent pitch bend range: ±${semitones} semitones (loop=${loopSent ? "ok" : "skipped"}, linnstrument=${ext.midi.instrumentOutput ? "ok/attempted" : "skipped"}).`);
+  log.info(
+    `Resent pitch bend range: ±${semitones} semitones (loop=${loopSent ? "ok" : "skipped"}, linnstrument=${ext.midi.instrumentOutput ? "ok/attempted" : "skipped"}).`,
+  );
 }
 
 function findCoordByRoutedNote(channel, noteNumber) {
@@ -1878,13 +1857,15 @@ function clearHeldState() {
 }
 
 function hasTransientPerformanceState() {
-  return ext.state.heldPads.size > 0
-    || ext.state.modPressuresByPad.size > 0
-    || ext.state.modChannelsByPad.size > 0
-    || ext.state.routedNotesByPad.size > 0
-    || ext.state.activeLoopNotes.size > 0
-    || ext.state.recentLoopNoteOns.size > 0
-    || ext.state.lastPitchBend14ByChannel.size > 0;
+  return (
+    ext.state.heldPads.size > 0 ||
+    ext.state.modPressuresByPad.size > 0 ||
+    ext.state.modChannelsByPad.size > 0 ||
+    ext.state.routedNotesByPad.size > 0 ||
+    ext.state.activeLoopNotes.size > 0 ||
+    ext.state.recentLoopNoteOns.size > 0 ||
+    ext.state.lastPitchBend14ByChannel.size > 0
+  );
 }
 
 function getGridMappingSignature() {
@@ -1924,11 +1905,7 @@ function updateRoutingStatus() {
   const inOk = Boolean(ext.midi.instrumentInput);
   const outOk = Boolean(ext.midi.loopOutput);
   const ready = inOk && outOk;
-  const status = !inOk
-    ? "No LinnStrument input"
-    : outOk
-      ? "Ready"
-      : "No loop output";
+  const status = !inOk ? "No LinnStrument input" : outOk ? "Ready" : "No loop output";
   const statusEl = document.getElementById("routingStatus");
   if (!statusEl) {
     return;
@@ -1971,9 +1948,8 @@ function getInstrumentColorForMeta(meta = {}, coord = null) {
   }
 
   const tonicPc = mod(ext.config.selectedKey ?? defaultConfig.selectedKey ?? 0, 12);
-  const isTonicPlayablePad = meta.zone === "play"
-    && Number.isFinite(meta.noteNumber)
-    && mod(meta.noteNumber, 12) === tonicPc;
+  const isTonicPlayablePad =
+    meta.zone === "play" && Number.isFinite(meta.noteNumber) && mod(meta.noteNumber, 12) === tonicPc;
 
   let color = INSTRUMENT_COLORS.disabled;
 
@@ -1989,15 +1965,14 @@ function getInstrumentColorForMeta(meta = {}, coord = null) {
   if (meta.zone === "preset-switch") color = INSTRUMENT_COLORS.presetSwitch;
   if (meta.zone === "octave") color = INSTRUMENT_COLORS.octave;
   if (meta.zone === "mode") color = meta.selected ? INSTRUMENT_COLORS.selected : INSTRUMENT_COLORS.mode;
-  if (meta.zone === "all-notes-toggle") color = meta.selected ? INSTRUMENT_COLORS.allNotesOn : INSTRUMENT_COLORS.allNotesOff;
+  if (meta.zone === "all-notes-toggle")
+    color = meta.selected ? INSTRUMENT_COLORS.allNotesOn : INSTRUMENT_COLORS.allNotesOff;
   if (meta.zone === "mpe") color = meta.selected ? INSTRUMENT_COLORS.mpeEnabled : INSTRUMENT_COLORS.mpeDisabled;
   if (meta.zone === "play") {
     const rootColor = parseLedColor(ext.config.colorRootNote, defaultConfig.colorRootNote);
     const scaleColor = parseLedColor(ext.config.colorScaleNote, defaultConfig.colorScaleNote);
     const nonScaleColor = parseLedColor(ext.config.colorNonScaleNote, defaultConfig.colorNonScaleNote);
-    color = isTonicPlayablePad
-      ? rootColor
-      : (meta.inSelectedScale ? scaleColor : nonScaleColor);
+    color = isTonicPlayablePad ? rootColor : meta.inSelectedScale ? scaleColor : nonScaleColor;
   }
   if (meta.zone === "disabled") color = INSTRUMENT_COLORS.off;
 
@@ -2111,12 +2086,7 @@ function sleep(ms) {
 }
 
 function shiftOutputOctave(deltaOctaves) {
-  const nextBaseRootC = clampInt(
-    ext.config.baseRootC + deltaOctaves * 12,
-    0,
-    108,
-    ext.config.baseRootC,
-  );
+  const nextBaseRootC = clampInt(ext.config.baseRootC + deltaOctaves * 12, 0, 108, ext.config.baseRootC);
 
   if (nextBaseRootC === ext.config.baseRootC) {
     log.warn(`Output octave already at ${deltaOctaves > 0 ? "maximum" : "minimum"}.`);
@@ -2199,7 +2169,7 @@ function wasRecentlyForwardedLoopNoteOn(channel, noteNumber, maxAgeMs = 30) {
   if (!Number.isFinite(atMs)) {
     return false;
   }
-  return (now - atMs) <= maxAgeMs;
+  return now - atMs <= maxAgeMs;
 }
 
 function getChannel(msg) {

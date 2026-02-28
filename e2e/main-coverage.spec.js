@@ -69,7 +69,10 @@ test("captures executable coverage for main.js interactions", async ({ page }, t
         return {
           remove() {
             const current = map.get(eventName) || [];
-            map.set(eventName, current.filter((fn) => fn !== handler));
+            map.set(
+              eventName,
+              current.filter((fn) => fn !== handler),
+            );
           },
         };
       }
@@ -80,7 +83,10 @@ test("captures executable coverage for main.js interactions", async ({ page }, t
         },
         removeListener(eventName, handler) {
           const current = globalListeners.get(eventName) || [];
-          globalListeners.set(eventName, current.filter((fn) => fn !== handler));
+          globalListeners.set(
+            eventName,
+            current.filter((fn) => fn !== handler),
+          );
         },
         emit(eventName, msg) {
           for (const handler of globalListeners.get(eventName) || []) {
@@ -109,7 +115,10 @@ test("captures executable coverage for main.js interactions", async ({ page }, t
           },
           removeListener(eventName, handler) {
             const current = listeners.get(eventName) || [];
-            listeners.set(eventName, current.filter((fn) => fn !== handler));
+            listeners.set(
+              eventName,
+              current.filter((fn) => fn !== handler),
+            );
           },
         };
       }
@@ -184,18 +193,39 @@ test("captures executable coverage for main.js interactions", async ({ page }, t
   await page.goto("/");
   await expect(page.locator("#visualization .cell").first()).toBeVisible();
 
-  await page.locator("#cell-0-0").first().evaluate((el) => {
-    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 1, pointerType: "mouse", button: 0, buttons: 1 }));
-    el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 1, pointerType: "mouse", button: 0, buttons: 0 }));
-  });
-  await page.locator("#cell-2-1").first().evaluate((el) => {
-    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 2, pointerType: "mouse", button: 0, buttons: 1 }));
-    el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 2, pointerType: "mouse", button: 0, buttons: 0 }));
-  });
-  await page.locator("#cell-1-2").first().evaluate((el) => {
-    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerId: 3, pointerType: "mouse", button: 0, buttons: 1 }));
-    el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerId: 3, pointerType: "mouse", button: 0, buttons: 0 }));
-  });
+  await page
+    .locator("#cell-0-0")
+    .first()
+    .evaluate((el) => {
+      el.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, pointerId: 1, pointerType: "mouse", button: 0, buttons: 1 }),
+      );
+      el.dispatchEvent(
+        new PointerEvent("pointerup", { bubbles: true, pointerId: 1, pointerType: "mouse", button: 0, buttons: 0 }),
+      );
+    });
+  await page
+    .locator("#cell-2-1")
+    .first()
+    .evaluate((el) => {
+      el.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, pointerId: 2, pointerType: "mouse", button: 0, buttons: 1 }),
+      );
+      el.dispatchEvent(
+        new PointerEvent("pointerup", { bubbles: true, pointerId: 2, pointerType: "mouse", button: 0, buttons: 0 }),
+      );
+    });
+  await page
+    .locator("#cell-1-2")
+    .first()
+    .evaluate((el) => {
+      el.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, pointerId: 3, pointerType: "mouse", button: 0, buttons: 1 }),
+      );
+      el.dispatchEvent(
+        new PointerEvent("pointerup", { bubbles: true, pointerId: 3, pointerType: "mouse", button: 0, buttons: 0 }),
+      );
+    });
   await page.evaluate(() => {
     const input = window.__instrumentInput;
     input.emit("noteon", { note: { number: 4 }, channel: 3, rawVelocity: 99 });

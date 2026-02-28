@@ -71,9 +71,8 @@ export function releaseControlOverlay(state, options = {}) {
     };
   }
 
-  const startedAtMs = Number.isFinite(state.pressStartedAtMs) && state.pressStartedAtMs > 0
-    ? state.pressStartedAtMs
-    : nowMs;
+  const startedAtMs =
+    Number.isFinite(state.pressStartedAtMs) && state.pressStartedAtMs > 0 ? state.pressStartedAtMs : nowMs;
   const pressDurationMs = Math.max(0, nowMs - startedAtMs);
   const wasPinned = Boolean(state.pinned);
   const wasActive = isControlOverlayActive(state);
