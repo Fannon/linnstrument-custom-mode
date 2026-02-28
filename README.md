@@ -1,41 +1,56 @@
 # LinnStrument Custom Mode Prototype (Web MIDI)
 
-Browser-based LinnStrument custom-mode prototype, inspired by the workflow of Novation Components.
+Browser-based LinnStrument custom-mode prototype.  
+It turns LinnStrument into a preset-driven scale surface with live key/mode controls and MIDI routing to a loop/DAW output.
 
-The current prototype focuses on preset layouts that turn the LinnStrument into a scale-constrained playing surface with on-device mode/key selection.
+## Current State
 
-## Current Features
+- Active runtime is a static web app served from `web/` using Web MIDI (`webmidi`).
+- Startup enforces a deterministic LinnStrument physical map (no-overlap notes `0..127`) and applies current MPE mode.
+- Core unit/syntax/build checks are passing via `bun run verify`.
+- One Playwright e2e test is currently failing around reset behavior (see `docs/todo.md`).
 
-- Web app (static files, runs in a Web MIDI capable browser)
-- Auto-detect LinnStrument MIDI input/output ports
-- User-select one MIDI loop output port (prefers `loopMIDI Port` if available)
-- Preconfigured layouts: `Scale Mode` and `Midimech` (whole-tone column geometry)
-- Shared behavior for both presets: bottom-left pad is control overlay, bottom-row pads 1-13 send modwheel (`CC1`) via pressure, bottom-row last two pads are Oct-/Oct+, plus key row (`C`-`B`), mode row (major/minor/pentatonics/etc.), and scale-constrained playable rows.
-- Configurable note layout row offset (default `4`)
-- Configurable horizontal slide pitch-bend scaling:
+## Features
+
+- Auto-detect LinnStrument input/output ports.
+- Select loop output (and optional backchannel input for note-highlighting feedback).
+- Two preset layouts:
+  - `Scale Mode`
+  - `Midimech` (whole-tone columns)
+- Control overlay on bottom-left pad:
+  - tap: latch overlay
+  - hold: momentary overlay
+- Bottom row behavior:
+  - pads `1..13`: Modwheel (`CC1`) via pressure
+  - last two pads: octave down/up
+- On-device controls for key, scale mode, all-notes toggle, preset switch, and MPE toggle.
+- Pitch-bend scaling options:
   - `1 pad = 0.5 semitones`
   - `1 pad = 1 semitone`
   - `1 pad = 2 semitones`
-- Surface visualization in browser + optional pad coloring on the LinnStrument itself
-- Standard input-mode routing (no User Firmware mode dependency)
+- Browser surface visualization plus optional LinnStrument LED painting (`CC20/21/22`).
 
-## MIDI Routing Model (Prototype)
+## MIDI Routing Model
 
-This prototype intentionally simplifies the setup compared to the old light-guide app:
+- `1x` LinnStrument MIDI input
+- `1x` LinnStrument MIDI output (device config + LED painting)
+- `1x` loop MIDI output (instrument/DAW target)
+- Optional loop/backchannel MIDI input for pad highlight feedback
 
-- `1x` LinnStrument input
-- `1x` LinnStrument output (for pad colors + sync)
-- `1x` loop MIDI output (to DAW / synth / plugin host)
+MPE enabled:
+- note + bend + pressure/timbre follow per-note channels
 
-Best results currently come from LinnStrument **Channel Per Row** mode.
+MPE disabled:
+- routed notes are forced to channel `1`
+- non-MPE multi-note bend is suppressed to center
 
 ## Requirements
 
-- A Web MIDI capable browser (Chrome / Edge)
-- LinnStrument connected via USB MIDI
+- Web MIDI capable browser (Chrome/Edge)
+- LinnStrument over USB MIDI
 - Optional virtual MIDI loop device (for example `loopMIDI` on Windows)
 
-## Dev Setup (Bun)
+## Dev Setup
 
 ```bash
 bun install
@@ -43,44 +58,35 @@ bun run start
 ```
 
 Notes:
-- Development is Bun-first. Use the Bun lockfile (`bun.lock`) and avoid reintroducing `package-lock.json`.
-- `bun run start` runs `prestart`, which rebuilds `web/lib/*` from `node_modules`.
-- The app is served from `./web` as static files.
+- Bun-first workflow; treat `bun.lock` as authoritative.
+- `bun run start` triggers `prestart` and rebuilds `web/lib/*`.
+- `bun run build` runs `bun ./bin/updateLibs.js` to refresh bundled frontend libs.
 
-Optional:
-- `npm` can still run the scripts, but Bun is the expected dev tooling for this repo.
-
-## Test & Verify (Bun)
+## Test & Verify
 
 ```bash
 bun run test
 bun run build
-# or both:
 bun run verify
+bun run test:e2e
+bun run test:e2e:coverage
 ```
 
-What this does:
-- `bun run test`: Bun unit tests (`test/*.test.js`) + syntax checks for browser source files
-- `bun run build`: refreshes `web/lib/*` from `node_modules`
-- `bun run verify`: standard local pre-commit/pre-push loop (`test + build`)
+- `test`: unit tests + syntax checks
+- `verify`: standard local gate (`test + build`)
+- `test:e2e`: Playwright browser regression suite
 
-CI and Pages builds use `bun install --frozen-lockfile`, so keep `bun.lock` committed when dependencies change.
+## Known Issue
 
-## Project Docs
+- `Reset Defaults` currently resets local config/UI but does not re-send the full LinnStrument no-overlap/MPE NRPN setup sequence that startup sends.
+- Workaround: use `Restore LinnStrument` after reset.
 
-- Design / roadmap: `docs/custom-mode-web-app-design.md`
-- LinnStrument MIDI reference used by this prototype: `tmp/midi.md`
-- Agent-oriented project map / consistency notes: `AGENT.md`
+## Project References
 
-## Current Limitations
-
-- Prototype quality UI and preset system (not yet a full visual custom-mode editor)
-- Expressive remapping is partial (pitch bend, poly aftertouch forwarding, modwheel row, and CC74 timbre forwarding are implemented)
-- Most thoroughly tested with 128-pad LinnStrument assumptions
-
-## Next Steps (Planned)
-
-- Expand unit tests for full layout generation and routing edge cases
-- Add Biome linting
-- Add more presets and eventually a real layout editor
-- Improve full expressive MPE-style remapping
+- Backlog / roadmap: `docs/todo.md`
+- Design notes: `docs/custom-mode-web-app-design.md`
+- LinnStrument protocol references:
+  - `tmp/linnstrument-firmware/midi.md`
+  - `tmp/linnstrument-firmware/user_firmware_mode.md`
+  - `tmp/linnstrument-firmware/*.ino`
+- Agent/project guidance: `AGENT.md` and `AGENTS.md`

@@ -2,101 +2,69 @@
 
 ## Purpose
 
-This repository is now a **browser-based LinnStrument custom mode prototype** (Web MIDI), evolving from an older light-guide project.
+This repo is a browser-based LinnStrument custom-mode prototype (Web MIDI) with preset-driven layouts and expressive routing.
 
-The current app is preset-based and centered on a scale-constrained playing layout.
+## Runtime and Tooling
 
-## Current Runtime
+- Static app from `web/`
+- Web MIDI via `webmidi`
+- Bun-first workflow (`bun install`, `bun run start`, `bun run verify`)
+- Frontend vendor assets copied into `web/lib/` by `bin/updateLibs.js`
 
-- Static web app served from `web/`
-- Browser Web MIDI (`webmidi`)
-- Bootstrap CSS/JS copied into `web/lib/` via `bin/updateLibs.sh`
-- Bun-first dev workflow (`bun install`, `bun run start`)
-- `bun run start` runs `prestart -> bun run build` first
+## Active Files
 
-## Core Files (Active)
+- `web/index.html`
+- `web/css/style.css`
+- `web/src/main.js`
+- `web/src/grid.js`
+- `web/src/layout-logic.js`
+- `web/src/core-logic.js`
+- `web/src/control-overlay.js`
+- `web/src/mpe-routing.js`
+- `web/src/mpe-voice-allocator.js`
+- `web/src/config.js`
+- `web/src/log.js`
+- `test/*.test.js`
+- `e2e/*.spec.js`
+- `docs/todo.md`
 
-- `web/index.html`: UI shell
-- `web/css/style.css`: styles
-- `web/src/main.js`: MIDI routing, UI wiring, pitch bend scaling, LinnStrument sync
-- `web/src/grid.js`: visualization/grid rendering helpers
-- `web/src/config.js`: persisted settings defaults
-- `web/src/log.js`: UI log helper
-- `docs/custom-mode-web-app-design.md`: design notes and roadmap
+## Protocol References (Use These First)
 
-## Reference Sources In `tmp/` (Use These First)
-
-When behavior is unclear, prefer these local sources before guessing:
+When routing/protocol behavior is unclear, verify against firmware sources before inferring from app code:
 
 - `tmp/linnstrument-firmware/user_firmware_mode.md`
-  - Canonical user-firmware protocol (rows/channels, columns/notes, slide mode, CC119 semantics, NRPN245 behavior)
 - `tmp/linnstrument-firmware/midi.md`
-  - Canonical CC/NRPN list (including CC20/21/22 LED control and NRPN parameters)
-- `tmp/MIDI MPE Spec.md`
-  - MPE reference for channel roles and expression routing
 - `tmp/linnstrument-firmware/ls_handleTouches.ino`
-  - Touch/slide transfer behavior in real firmware, including user-firmware note/pressure handling
 - `tmp/linnstrument-firmware/ls_midi.ino`
-  - MIDI input handling implementation for CC/NRPN and LED commands
 - `tmp/linnstrument-firmware/ls_settings.ino`
-  - User Firmware mode state transitions and outbound NRPN245 notifications
 - `tmp/linnstrument-firmware/ls_noteTouchMapping.ino`
-  - Note/voice ordering and touch-note mapping model used in firmware
+- `tmp/MIDI MPE Spec.md`
 
-Additional inspiration (not canonical for LinnStrument firmware behavior):
+## Current Project State (Reviewed Feb 28, 2026)
 
-- `tmp/midimech/`: alternative controller app/layout ideas
+- `bun run verify`: passing
+- `bun run test:e2e`: one failing spec
+  - `e2e/web-surface.spec.js` reset flow expects startup-equivalent no-overlap/MPE NRPN resend
+- CI currently runs only `bun run verify` (no Playwright e2e gate)
 
-## MIDI Assumptions
+## Agent Guidance
 
-- Best behavior currently with LinnStrument **Channel Per Row** mode
-- Uses LinnStrument custom cell colors via:
-  - `CC20` column
-  - `CC21` row
-  - `CC22` color
-- Sync reads selected NRPN values for row mode/order and layout mapping
+- Treat this file as canonical and keep `AGENTS.md` aligned.
+- Prefer Bun tooling and keep `bun.lock` authoritative unless explicitly told otherwise.
+- Focus edits in active app files under `web/` and tests under `test/` / `e2e/`.
+- For MIDI protocol changes, validate against `tmp/linnstrument-firmware/*.ino`.
+- Keep `web/index.html` and `bin/updateLibs.js` aligned when frontend dependencies change.
+- Avoid broad refactors unless they reduce risk in `web/src/main.js` and come with tests.
 
-## Current Status / Consistency
-
-The project is mostly consistent with the new prototype direction:
-
-- `README.md` documents the custom-mode prototype (not the old light-guide flow)
-- `package.json` startup/build flow matches the static app setup
-- Unused legacy recorder/statistics modules and `jzz-midi-smf` dependency were removed
-
-## Guidance For Agents
-
-- Default to editing the active files listed above.
-- Prefer Bun tooling and `bun.lock`; do not reintroduce `package-lock.json` unless explicitly requested.
-- Verify MIDI behavior changes against `tmp/linnstrument-firmware/user_firmware_mode.md` and `tmp/linnstrument-firmware/midi.md` before changing routing/sync logic.
-- For protocol edge cases, verify against firmware source (`tmp/linnstrument-firmware/*.ino`), not only markdown summaries.
-- Keep `web/index.html` and `bin/updateLibs.sh` aligned when changing frontend dependencies.
-- Avoid reintroducing recorder/statistics/JZZ-SMF code unless explicitly requested.
-
-## Codex CLI Instruction File Note
-
-- Codex CLI discovers `AGENTS.md` by default (plural), not `AGENT.md`.
-- Keep a top-level `AGENTS.md` file in sync with this file so repo instructions are automatically applied.
-
-## Verify Loop (Required)
-
-Use this loop for code changes, especially MIDI mapping/layout changes:
+## Verify Loop (Required Before Handoff)
 
 1. `bun run test`
-   - Runs Bun unit tests for extracted core mapping/theory logic
-   - Runs syntax checks for browser source files (`web/src/*.js`)
 2. `bun run build`
-   - Rebuilds static browser dependencies into `web/lib/`
 3. `bun run verify`
-   - Convenience command for `test + build` (preferred before handoff)
+4. `bun run test:e2e` when behavior/UI/routing changes (currently not in CI gate)
 
-Notes:
-- CI (`.github/workflows/ci.yaml`) runs `bun install --frozen-lockfile` and `bun run verify`.
-- Add tests in `test/*.test.js` when touching pure mapping/math logic; refactor from `web/src/main.js` into pure helpers first if needed.
+## Priority Work
 
-## Good Next Refactors (If Requested)
-
-- Expand pure layout/routing extraction from `web/src/main.js` for deeper unit testing
-- Add Biome linting / formatting checks
-- Expand tests for full layout generation (key row, mode row, octave pads, same-note highlighting rules)
-- Add more presets / editable layout schema
+- Fix reset flow to resend LinnStrument no-overlap/MPE NRPN setup.
+- Sanitize log rendering (`web/src/log.js`) to avoid HTML injection.
+- Add e2e coverage to CI (full or scheduled).
