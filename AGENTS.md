@@ -59,7 +59,9 @@ bun run start         # Dev server on localhost:3000
 | `midi-io.js` | ~110 | Port filtering, auto-detection, listener wiring |
 | `routing.js` | ~70 | Note key helpers, loop note tracking |
 | `ui-state.js` | ~60 | DOM `getValue`/`setValue`/`fillSelect` helpers |
-| `utils.js` | ~10 | Shared micro-helpers (e.g. `coordKey`) |
+| `colors.js` | ~70 | UI/Hardware color theme sync logic |
+| `log.js` | ~50 | Logging utility for UI and console |
+| `utils.js` | ~15 | Shared micro-helpers (debounce, `coordKey`) |
 
 ### Other Key Files
 
@@ -124,9 +126,4 @@ bun run test:e2e    # When you changed UI, routing, or MIDI behavior
 
 ## Priority Work
 
-See `docs/todo.md` for the full backlog. Top priorities:
-
-1. **B4** — Disable `DEBUG_MIDI_FLOW` by default (floods the user-facing log)
-2. **R1** — Extract modules from `main.js` (start with `midi-sender.js`)
-3. **B1** — Deduplicate `coordKey` across three files
-4. **Q6** — Add unit tests for `routing.js`, `instrument-sync.js`, `midi-io.js`
+See `docs/todo.md` for the full backlog. 

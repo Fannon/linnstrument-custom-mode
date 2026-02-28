@@ -171,6 +171,7 @@ These modules have no dedicated unit tests. They are exercised indirectly throug
 - [x] **R4** – Convert `getInstrumentColorForMeta` from if-chain to `switch` statement.
 - [x] **Q3** – Remove meaningless `"main": "index.js"` from `package.json`.
 - [x] **Q7** – Extract magic accidental pitch classes into named `ACCIDENTAL_PITCH_CLASSES` constant.
+- [x] **Feature:** Dynamic UI color theme sync (UI matches LinnStrument LED colors).
 
 ---
 

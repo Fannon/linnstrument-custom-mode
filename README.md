@@ -1,159 +1,121 @@
-# LinnStrument Custom Mode
+# 🎹 LinnStrument Custom Mode
 
-> A browser-based custom-mode surface and MIDI router for the [LinnStrument](https://www.rogerlinndesign.com/linnstrument).
-> Try it live at **[fannon.github.io/linnstrument-custom-mode](https://fannon.github.io/linnstrument-custom-mode/)**.
+> **Play only the right notes.** A powerful browser-based "brain" for your [LinnStrument](https://www.rogerlinndesign.com/linnstrument) that redefines how you play, perform, and practice.
 
-## What It Does
+🚀 **[Try it live here!](https://fannon.github.io/linnstrument-custom-mode/)**
 
-This app turns your browser into a MIDI controller surface for the LinnStrument. It:
+---
 
-- **Remaps** pads to a scale-aware layout (only "right" notes, no wrong ones).
-- **Routes** note, pitch bend, pressure, and CC messages to a DAW via a virtual MIDI port.
-- **Paints** the LinnStrument LEDs to match the on-screen layout.
-- **Highlights** playback notes from your DAW back on the web grid (lightguide).
+## ✨ Why LinnStrument Custom Mode?
 
-Two layout presets are included:
-- **Scale Mode** — sequential scale degrees (like the LinnStrument's built-in scale mode, but fully configurable).
-- **Midimech** — whole-tone columns with configurable row offset (inspired by [midimech](https://github.com/flipcoder/midimech)).
+The LinnStrument is a beautiful, expressive instrument, but its built-in firmware has its limits. Sometimes you want to:
+- **Lock your grid to a specific scale** so you can never play a "wrong" note.
+- **Experiment with unique layouts** like the whole-tone based *Midimech*.
+- **Sync your hardware LEDs** to match your visual layout in real-time.
+- **See what you're playing** on a large, high-resolution screen.
 
-## Quick Start
+This project uses the **Web MIDI API** to act as a bridge between your hardware and your DAW, giving you a flexible, software-powered layer of control that's as expressive as the hardware itself.
 
-### Requirements
+---
 
-- **Browser:** Chrome or Edge (Web MIDI support required).
-- **Hardware:** LinnStrument (128 or 200) connected via USB.
-- **Optional:** A virtual MIDI loopback port for DAW routing (e.g. [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html) on Windows, or IAC on macOS).
+## 🌟 Key Features
 
-### Run Locally
+- 🎯 **Scale-Aware Remapping:** Every pad is intelligently mapped to your chosen scale. Skip the wrong notes and focus on the melody.
+- 🎨 **LED Painting:** Your LinnStrument's LEDs are automatically "painted" to match the on-screen scale colors.
+- 🌈 **Dynamic Color Themes:** The UI color theme matches your chosen LED colors, providing a consistent visual experience across screen and device.
+- 🎸 **MPE & Expression:** Full support for MPE (MIDI Polyphonic Expression), including pitch bend, pressure, and timbre per note.
+- 💡 **Lightguide Input:** Feed MIDI back into the app from your DAW to highlight notes on the grid—perfect for learning tracks or live visual feedback.
+- 🛠️ **Seamless Integration:** Works with your existing DAW via virtual MIDI ports (like loopMIDI or IAC).
 
-```bash
-bun install
-bun run start
-```
+---
 
-Then open the URL shown by the dev server (usually `http://localhost:3000`).
+## 🚀 Getting Started
 
-### Connect Your Devices
+### 1. Requirements
+- **Hardware:** A LinnStrument (128 or 200) connected via USB.
+- **Software:** A modern browser with Web MIDI support (Chrome or Edge).
+- **DAW Routing:** A virtual MIDI port for connecting to your DAW (e.g., [loopMIDI](https://www.tobias-erichsen.de/software/loopmidi.html) on Windows or IAC on macOS).
 
-In the **Connections** panel:
+### 2. Connect Your Ports
+Once you open the app, head to the **Connections** panel:
 
-| Port | What to pick |
+| Port | Description |
 |---|---|
-| **LinnStrument Input** | Your LinnStrument's MIDI input (auto-detected) |
-| **LinnStrument Output** | Your LinnStrument's MIDI output (auto-detected) |
-| **MIDI Loop Output** | Virtual MIDI port going into your DAW |
-| **Lightguide Input** *(optional)* | MIDI input from your DAW for playback highlighting |
+| **LinnStrument Input** | Receives your pad touches. |
+| **LinnStrument Output** | Sends LED colors and hardware setup commands back to your device. |
+| **MIDI Loop Output** | Where the "remapped" notes are sent to your DAW/Instruments. |
+| **Lightguide Input** | (Optional) MIDI from your DAW to highlight pads on the screen. |
 
-> **Tip:** Port selections are saved in your browser. Once you manually select a port, auto-detection is disabled until you click **Reset Defaults**.
+### 3. Setup Your Instrument
+Click the **Restore** button in the app. This will send a few "NRPN" commands to your LinnStrument to ensure it's in the correct "No Overlap" mode and ready for custom control.
 
-## How to Play
+---
 
-### Bottom Row (always visible)
+## 🎹 How to Play
 
-| Pad | Function |
-|---|---|
-| **Ctl** (bottom-left) | Tap to toggle control overlay; hold for momentary |
-| **Pads 1–13** | Mod Wheel (CC1) — pressure-sensitive |
-| **Oct−** / **Oct+** (last two) | Shift the output octave down/up |
+### The Main Surface
+Play on either your screen or your device! Both are perfectly synced.
+- 🟧 **Orange Pads** are your Root notes.
+- ⬜ **White Pads** are notes in your chosen scale.
+- ⬛ **Dark/Empty Pads** are outside your scale (and are skipped in Scale mode).
 
-### Control Overlay (rows 1–2, when active)
+### The Control Overlay 🛠️
+Tap the **"Ctl"** pad (bottom-left) to toggle the **Control Overlay**. This transforms part of your grid into a settings dashboard where you can:
+- **Change the Root Note** (C, C#, D...)
+- **Select a Scale** (Major, Minor, Dorian, etc.)
+- **Switch Presets** (Basic Scale vs. Midimech)
+- **Toggle MPE Mode**
 
-- **Row 1:** Select root note (C through B), toggle layout preset, toggle MPE mode.
-- **Row 2:** Select scale/mode, toggle "All Notes" display.
+### Performance Row (Bottom)
+The bottom row is always available for expressive control:
+- **Mod Wheel (CC1):** Pads 1–13 are mapped to your mod wheel. They are pressure-sensitive!
+- **Octave Shift:** The final two pads on the right shift your output range up or down.
 
-### Playable Grid (rows above)
+---
 
-Play notes! Each pad sends a note to the loop output. The grid shows the current scale and highlights:
-- 🟧 **Orange** = root note
-- ⬜ **White** = scale note
-- Greyed out = non-scale note (in Scale mode, these are skipped)
+## ⚙️ Advanced Customization
 
-## Settings
+Adjust your performance settings in the **Advanced Settings** panel:
+- **Pitch Bend Range:** Sync your DAW and hardware bend ranges (default is ±48 semitones).
+- **Slide Sensitivity:** Control how many semitones are covered when sliding horizontally.
+- **Row Offset:** Change the interval between rows (e.g., 4 scale degrees or 5 semitones).
 
-### Advanced Settings Panel
+---
 
-| Setting | Default | Description |
-|---|---|---|
-| **Pitch Bend Range** | ±48 | Sent to both loop output (RPN 0, ch 1–16) and LinnStrument (NRPN 19 + 119) |
-| **Horizontal Slide (Standard)** | 1 semitone/pad | Pitch bend scaling for Scale Mode layout |
-| **Horizontal Slide (Mech)** | 2 semitones/pad | Pitch bend scaling for Midimech layout |
-| **Scale/All Notes Row Offset** | 4 / 5 | How many scale degrees (or semitones) between rows |
-| **LED Colors** | Configurable | Root, scale, non-scale, and mod-wheel colors on the LinnStrument |
+## 🛠️ Technical Details & Development
 
-### Reset & Restore
-
-- **Reset Defaults** — clears all saved settings and restores factory defaults.
-- **Restore** — re-sends the LinnStrument setup NRPNs without clearing your preferences.
-- **All Notes Off** — panic button; sends CC 123 on all channels.
-
-## MIDI Routing
-
-```
-LinnStrument ──► [App] ──► Loop Output (DAW)
-                  │
-                  ├──► LinnStrument Output (LEDs + NRPN config)
-                  │
-Lightguide Input ──► [App] ──► Web grid highlights
-```
-
-**MPE enabled (default):** Notes, pitch bend, pressure, and timbre follow per-note channels.  
-**MPE disabled:** Everything routes to channel 1. Multi-note pitch bend is suppressed.
-
-## Development
-
-```bash
-bun run lint          # Biome linter
-bun run format:check  # Biome formatter check
-bun run test          # Unit tests (Bun)
-bun run build         # Copy vendor libs to web/lib/
-bun run verify        # lint + test + build (pre-commit check)
-bun run test:e2e      # Playwright end-to-end tests
-bun run deploy        # Deploy to GitHub Pages
-```
+This project is built with vanilla JavaScript—no heavy frameworks, just clean modules and high performance.
 
 ### Project Structure
-
-```
-web/
-  index.html            # Single-page app
-  css/style.css         # All styles
-  src/
-    main.js             # App entry point, MIDI handlers, UI binding
-    config.js           # Config defaults, localStorage persistence
-    core-logic.js       # Scale/mode math, chord detection, pitch bend
-    grid.js             # Grid generation and DOM rendering
-    layout-logic.js     # Preset/layout definitions, cell metadata
-    control-overlay.js  # Overlay toggle state machine
-    mpe-routing.js      # MPE channel routing logic
-    mpe-voice-allocator.js  # Per-note channel allocation
-    instrument-sync.js  # LinnStrument NRPN commands
-    midi-io.js          # Port filtering, auto-detection, listener wiring
-    routing.js          # Note key helpers, loop note tracking
-    ui-state.js         # DOM value get/set helpers
-    utils.js            # Shared micro-helpers (e.g. `coordKey`)
-  lib/                  # Vendor assets (generated by bin/updateLibs.js)
-test/                   # Unit tests (Bun test runner)
-e2e/                    # Playwright end-to-end tests
-controller/             # Bitwig controller script (optional)
-docs/
-  todo.md               # Backlog and codebase review
-  custom-mode-web-app-design.md  # Design notes
+```text
+web/src/
+  main.js             # The "Brain" - orchestrates everything
+  colors.js           # Handles UI color palettes and hardware sync
+  config.js           # Manages your saved preferences
+  core-logic.js       # The math behind scales, chords, and pitch bend
+  grid.js             # Handles visual rendering and coordinate mapping
+  layout-logic.js     # Defines how pads are assigned their roles
+  control-overlay.js  # Manages the "Dashboard" overlay state
+  mpe-routing.js      # Smart MPE voice and channel routing
+  midi-io.js          # Hardware discovery and port management
+  utils.js            # Shared utility functions (debounce, coordinate keys)
+  instrument-sync.js  # Hardware-specific NRPN communication
+  log.js              # UI and console logging utility
 ```
 
-## Controller Script (Optional)
+### Dev Commands
+```bash
+bun install           # Install dev tools (Biome, Playwright)
+bun run start         # Launch local development server
+bun run verify        # Run all checks (Lint, Tests, Build)
+```
 
-The `controller/` folder contains a Bitwig Studio controller script that:
-- Passes LinnStrument input through without remapping.
-- Sends selected-track playback notes back on MIDI Out for lightguide highlighting.
+---
 
-See [`controller/README.md`](controller/README.md) for installation instructions.
+## 📜 References & License
 
-## References
+- [LinnStrument Firmware Documentation](tmp/linnstrument-firmware/midi.md)
+- [MIDI MPE Specification](tmp/MIDI%20MPE%20Spec.md)
+- Inspired by the [Midimech](https://github.com/flipcoder/midimech) layout.
 
-- [LinnStrument firmware docs](tmp/linnstrument-firmware/midi.md) (local)
-- [MIDI MPE specification](tmp/MIDI%20MPE%20Spec.md) (local)
-- [Midimech](https://github.com/flipcoder/midimech) — inspiration for the Mech layout
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+MIT License — Share, build, and play! 🎵
