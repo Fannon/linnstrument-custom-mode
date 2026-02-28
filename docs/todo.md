@@ -1,18 +1,10 @@
 ## TODO
 
-### Fixes (Highest Priority)
-
-- [x] Re-apply LinnStrument standard no-overlap layout on `Reset Defaults` (same NRPN sequence used at startup and restore).  
-  Reason: `bun run test:e2e` currently has one failing spec for this reset behavior.
-- [x] Harden log rendering in `web/src/log.js` by replacing `innerHTML` string interpolation with safe DOM text nodes.  
-  Reason: external/device-provided strings (for example MIDI port names) should not be inserted as raw HTML.
-- [x] Decide lockfile policy and enforce it (`bun.lock` only; `package-lock.json` removed from repo).
-
 ### Reliability & Dev-Ex Improvements
 
 - [x] Add lint/format checks (Biome or ESLint/Prettier) and run them in CI.
 - [x] Add Playwright e2e to CI (full run or nightly job) so regressions are caught before merge.
-- [ ] Break up `web/src/main.js` into smaller modules (`midi-io`, `routing`, `ui-state`, `instrument-sync`) to reduce regression risk.
+- [x] Break up `web/src/main.js` into smaller modules (`midi-io`, `routing`, `ui-state`, `instrument-sync`) to reduce regression risk.
 - [ ] Add runtime guardrails for missing MIDI ports and recover cleanly from hot-plug disconnect/reconnect.
 
 ### Midimech Comparison Follow-Ups

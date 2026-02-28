@@ -28,6 +28,34 @@ import {
   listOutputChannelsForInputChannel,
   shouldForwardPitchBendForInputChannel,
 } from "./mpe-routing.js";
+import { getValue, setText, setValue, fillSelect } from "./ui-state.js";
+import {
+  DEFAULT_HIDDEN_MIDI_PORT_NAMES,
+  listVisiblePortNames,
+  sanitizeSelectedPortName,
+  autoSelectLinnStrumentPorts as autoSelectLinnStrumentPortsCore,
+  isPotentialFeedbackInput,
+  detachMidiInputListeners,
+  attachInstrumentInputListeners as attachInstrumentInputListenersCore,
+  attachLoopInputListeners as attachLoopInputListenersCore,
+} from "./midi-io.js";
+import {
+  getChannel,
+  noteKey,
+  withInputSource,
+  markRecentLoopNoteOn as markRecentLoopNoteOnCore,
+  wasRecentlyForwardedLoopNoteOn as wasRecentlyForwardedLoopNoteOnCore,
+  findCoordByRoutedNote as findCoordByRoutedNoteCore,
+  modTouchId,
+  overlayTouchIdForEvent as overlayTouchIdForEventCore,
+} from "./routing.js";
+import {
+  NRPN,
+  STANDARD_LAYOUT,
+  setLinnStrumentParamValue as setLinnStrumentParamValueCore,
+  applyLinnStrumentStandardLayout,
+  applyLinnStrumentMpeInputMode,
+} from "./instrument-sync.js";
 const MODE_BY_ID = Object.fromEntries(MODES.map((mode) => [mode.id, mode]));
 
 const INSTRUMENT_COLORS = {
@@ -54,20 +82,6 @@ const INSTRUMENT_COLORS = {
 
 const DEBUG_CONTROL_OVERLAY = false;
 const DEBUG_MIDI_FLOW = true;
-const NRPN_SPLIT_LEFT_MIDI_MODE = 0;
-const NRPN_SPLIT_LEFT_MAIN_CHANNEL = 1;
-const NRPN_SPLIT_LEFT_PER_NOTE_CHANNEL_START = 2;
-const NRPN_SPLIT_LEFT_PER_NOTE_CHANNEL_END = 17;
-const NRPN_SPLIT_LEFT_BEND_RANGE = 19;
-const NRPN_SPLIT_RIGHT_BEND_RANGE = 119;
-const NRPN_SPLIT_LEFT_OCTAVE = 36;
-const NRPN_SPLIT_LEFT_TRANSPOSE_PITCH = 37;
-const NRPN_GLOBAL_SPLIT_ACTIVE = 200;
-const NRPN_GLOBAL_ROW_OFFSET = 227;
-const NRPN_DEVICE_USER_FIRMWARE_MODE = 245;
-const STANDARD_DEVICE_START_NOTE = 0;
-const STANDARD_SPLIT_LEFT_OCTAVE_VALUE = 3;
-const STANDARD_SPLIT_LEFT_TRANSPOSE_PITCH_VALUE = 1;
 const MIDIMECH_PRESET_ID = "midimech-v1";
 const AUTO_APPLY_FIELD_IDS = [
   "instrumentInputPort",
@@ -93,7 +107,6 @@ const AUTO_APPLY_RECONNECT_FIELD_IDS = new Set([
   "loopOutputPort",
   "loopInputPort",
 ]);
-const HIDDEN_MIDI_PORT_NAMES = new Set(["midinous clock port", "touchosc bridge"]);
 
 export const ext = {
   config: {},
@@ -487,101 +500,19 @@ function shouldAutoSelectPorts() {
   return !ext.config.portSelectionLocked;
 }
 
-function fillSelect(selectEl, names, selected, options = {}) {
-  if (!selectEl) {
-    return;
-  }
-
-  const { includeEmpty = true, emptyLabel = "(none)" } = options;
-  const normalizedSelected = typeof selected === "string" ? selected : "";
-  const uniqueNames = Array.from(
-    new Set(
-      (Array.isArray(names) ? names : []).map((name) => String(name || "").trim()).filter((name) => name.length > 0),
-    ),
-  );
-  selectEl.innerHTML = "";
-
-  if (includeEmpty) {
-    const empty = document.createElement("option");
-    empty.value = "";
-    empty.textContent = emptyLabel;
-    selectEl.appendChild(empty);
-  }
-
-  let hasSelected = false;
-  uniqueNames.forEach((name) => {
-    const option = document.createElement("option");
-    option.value = name;
-    option.textContent = name;
-    if (normalizedSelected === name) {
-      option.selected = true;
-      hasSelected = true;
-    }
-    selectEl.appendChild(option);
-  });
-
-  if (normalizedSelected && !hasSelected) {
-    const unavailable = document.createElement("option");
-    unavailable.value = normalizedSelected;
-    unavailable.textContent = `${normalizedSelected} (unavailable)`;
-    unavailable.selected = true;
-    unavailable.dataset.unavailable = "true";
-    selectEl.appendChild(unavailable);
-  }
-}
-
 function autoSelectLinnStrumentPorts() {
-  const inputSelect = document.getElementById("instrumentInputPort");
-  const outputSelect = document.getElementById("instrumentOutputPort");
-  const loopSelect = document.getElementById("loopOutputPort");
-
-  const visibleInputs = (WebMidi.inputs || []).filter((port) => !isHiddenMidiPortName(port?.name));
-  const visibleOutputs = (WebMidi.outputs || []).filter((port) => !isHiddenMidiPortName(port?.name));
-  const detectedInput = visibleInputs.find((port) => /linnstrument/i.test(port.name));
-  const detectedOutput = visibleOutputs.find((port) => /linnstrument/i.test(port.name));
-
-  if (inputSelect && !inputSelect.value && detectedInput) {
-    inputSelect.value = detectedInput.name;
-    log.info(`Auto-detected LinnStrument input: ${detectedInput.name}`);
-  }
-
-  if (outputSelect && !outputSelect.value && detectedOutput) {
-    outputSelect.value = detectedOutput.name;
-    log.info(`Auto-detected LinnStrument output: ${detectedOutput.name}`);
-  }
-
-  if (loopSelect && !loopSelect.value) {
-    const preferredLoop =
-      visibleOutputs.find((port) => /^LinnStrument Custom$/i.test(port.name)) ||
-      visibleOutputs.find((port) => /^loopMIDI Port$/i.test(port.name)) ||
-      visibleOutputs.find((port) => /loopmidi/i.test(port.name));
-    const firstLoop = preferredLoop || visibleOutputs.find((port) => !/linnstrument/i.test(port.name));
-    if (firstLoop) {
-      loopSelect.value = firstLoop.name;
-      log.info(`Preselected loop output candidate: ${firstLoop.name}`);
-    }
-  }
+  autoSelectLinnStrumentPortsCore({
+    inputSelect: document.getElementById("instrumentInputPort"),
+    outputSelect: document.getElementById("instrumentOutputPort"),
+    loopSelect: document.getElementById("loopOutputPort"),
+    inputs: WebMidi.inputs,
+    outputs: WebMidi.outputs,
+    log,
+    hiddenNames: DEFAULT_HIDDEN_MIDI_PORT_NAMES,
+  });
 
   // Lightguide input has no default-name auto-selection.
   // Keep it at (none) unless user explicitly picks one (or has one saved).
-}
-
-function listVisiblePortNames(ports) {
-  return (Array.isArray(ports) ? ports : [])
-    .map((port) => String(port?.name || "").trim())
-    .filter((name) => name && !isHiddenMidiPortName(name))
-    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true }));
-}
-
-function isHiddenMidiPortName(name) {
-  const normalized = String(name || "")
-    .trim()
-    .toLowerCase();
-  return normalized ? HIDDEN_MIDI_PORT_NAMES.has(normalized) : false;
-}
-
-function sanitizeSelectedPortName(name) {
-  return isHiddenMidiPortName(name) ? "" : String(name || "").trim();
 }
 
 async function connectMidiFromConfig() {
@@ -648,46 +579,32 @@ async function connectMidiFromConfig() {
   updateRoutingStatus();
 }
 
-function isPotentialFeedbackInput(inputName, loopOutputName) {
-  if (!inputName || !loopOutputName) {
-    return false;
-  }
-  return String(inputName).trim().toLowerCase() === String(loopOutputName).trim().toLowerCase();
-}
-
 function detachInstrumentInputListeners() {
-  if (ext.midi.instrumentInput) {
-    try {
-      ext.midi.instrumentInput.removeListener();
-    } catch (err) {
-      console.warn("Failed to detach previous listeners", err);
-    }
-  }
+  detachMidiInputListeners(ext.midi.instrumentInput, "previous listeners");
 }
 
 function detachLoopInputListeners() {
-  if (ext.midi.loopInput) {
-    try {
-      ext.midi.loopInput.removeListener();
-    } catch (err) {
-      console.warn("Failed to detach previous lightguide listeners", err);
-    }
-  }
+  detachMidiInputListeners(ext.midi.loopInput, "previous lightguide listeners");
 }
 
 function attachInstrumentInputListeners(input) {
-  input.addListener("noteon", (msg) => handleNoteOn(withInputSource(msg, "instrument")));
-  input.addListener("noteoff", (msg) => handleNoteOff(withInputSource(msg, "instrument")));
-  input.addListener("controlchange", (msg) => handleControlChange(withInputSource(msg, "instrument")));
-  input.addListener("keyaftertouch", (msg) => handlePolyPressure(withInputSource(msg, "instrument")));
-  input.addListener("channelaftertouch", (msg) => handleChannelAftertouch(withInputSource(msg, "instrument")));
-  input.addListener("pitchbend", (msg) => handlePitchBend(withInputSource(msg, "instrument")));
+  attachInstrumentInputListenersCore(input, {
+    handleNoteOn,
+    handleNoteOff,
+    handleControlChange,
+    handlePolyPressure,
+    handleChannelAftertouch,
+    handlePitchBend,
+    withInputSource,
+  });
 }
 
 function attachLoopInputListeners(input) {
-  input.addListener("noteon", (msg) => handleBackchannelNoteOn(msg));
-  input.addListener("noteoff", (msg) => handleBackchannelNoteOff(msg));
-  input.addListener("controlchange", (msg) => handleBackchannelControlChange(msg));
+  attachLoopInputListenersCore(input, {
+    handleBackchannelNoteOn,
+    handleBackchannelNoteOff,
+    handleBackchannelControlChange,
+  });
 }
 
 function rebuildLayout(options = {}) {
@@ -1800,8 +1717,8 @@ async function resendPitchBendRangeFromConfig() {
   const loopSent = setLoopPitchBendRangeSemitones(semitones);
   if (ext.midi.instrumentOutput) {
     try {
-      await setLinnStrumentParamValue(NRPN_SPLIT_LEFT_BEND_RANGE, semitones);
-      await setLinnStrumentParamValue(NRPN_SPLIT_RIGHT_BEND_RANGE, semitones);
+      await setLinnStrumentParamValue(NRPN.SPLIT_LEFT_BEND_RANGE, semitones);
+      await setLinnStrumentParamValue(NRPN.SPLIT_RIGHT_BEND_RANGE, semitones);
     } catch (err) {
       console.warn("Failed to resend LinnStrument bend range", err);
     }
@@ -1812,12 +1729,7 @@ async function resendPitchBendRangeFromConfig() {
 }
 
 function findCoordByRoutedNote(channel, noteNumber) {
-  for (const [coord, routed] of ext.state.routedNotesByPad.entries()) {
-    if (routed.channel === channel && routed.note === noteNumber) {
-      return coord;
-    }
-  }
-  return null;
+  return findCoordByRoutedNoteCore(ext.state.routedNotesByPad, channel, noteNumber);
 }
 
 function allNotesOff() {
@@ -2011,12 +1923,7 @@ function highlightInstrumentHardwareXY(x, y, color) {
 }
 
 async function setLinnStrumentParamValue(paramNumber, value) {
-  const output = ext.midi.instrumentOutput;
-  if (!output) {
-    throw new Error("Missing LinnStrument output");
-  }
-  output.sendNrpnValue(nrpn(paramNumber), nrpn(value), { channels: 1 });
-  await sleep(24);
+  await setLinnStrumentParamValueCore(ext.midi.instrumentOutput, paramNumber, value);
 }
 
 async function ensureLinnStrumentStandardLayout(reason = "startup") {
@@ -2029,14 +1936,10 @@ async function ensureLinnStrumentStandardLayout(reason = "startup") {
     // - Split OFF (single full-width surface)
     // - Row Offset = No overlap
     // - Zero split pitch transposition
-    await setLinnStrumentParamValue(NRPN_DEVICE_USER_FIRMWARE_MODE, 0);
-    await setLinnStrumentParamValue(NRPN_GLOBAL_SPLIT_ACTIVE, 0);
-    await setLinnStrumentParamValue(NRPN_GLOBAL_ROW_OFFSET, 0);
-    await setLinnStrumentParamValue(NRPN_SPLIT_LEFT_OCTAVE, STANDARD_SPLIT_LEFT_OCTAVE_VALUE);
-    await setLinnStrumentParamValue(NRPN_SPLIT_LEFT_TRANSPOSE_PITCH, STANDARD_SPLIT_LEFT_TRANSPOSE_PITCH_VALUE);
-    if (ext.config.deviceStartNote !== STANDARD_DEVICE_START_NOTE) {
-      ext.config.deviceStartNote = STANDARD_DEVICE_START_NOTE;
-      setValue("deviceStartNote", STANDARD_DEVICE_START_NOTE);
+    await applyLinnStrumentStandardLayout(ext.midi.instrumentOutput);
+    if (ext.config.deviceStartNote !== STANDARD_LAYOUT.DEVICE_START_NOTE) {
+      ext.config.deviceStartNote = STANDARD_LAYOUT.DEVICE_START_NOTE;
+      setValue("deviceStartNote", STANDARD_LAYOUT.DEVICE_START_NOTE);
       persistConfig(ext.config);
     }
     log.info(`Requested LinnStrument standard no-overlap layout (notes 0..127) on ${reason}.`);
@@ -2052,37 +1955,17 @@ async function configureLinnStrumentMpeInputMode(enabled, reason = "toggle") {
     return false;
   }
   try {
+    await applyLinnStrumentMpeInputMode(ext.midi.instrumentOutput, enabled);
     if (enabled) {
-      // Channel Per Note mode, main channel 1, member note channels 2..16.
-      await setLinnStrumentParamValue(NRPN_SPLIT_LEFT_MIDI_MODE, 1);
-      await setLinnStrumentParamValue(NRPN_SPLIT_LEFT_MAIN_CHANNEL, 1);
-      for (let param = NRPN_SPLIT_LEFT_PER_NOTE_CHANNEL_START; param <= NRPN_SPLIT_LEFT_PER_NOTE_CHANNEL_END; param++) {
-        const midiChannel = param - 1;
-        await setLinnStrumentParamValue(param, midiChannel >= 2 ? 1 : 0);
-      }
       log.info(`Configured LinnStrument MPE-style input mode on ${reason} (Channel Per Note, member channels 2-16).`);
       return true;
     }
-
-    // One Channel mode on channel 1 for non-MPE operation.
-    await setLinnStrumentParamValue(NRPN_SPLIT_LEFT_MIDI_MODE, 0);
-    await setLinnStrumentParamValue(NRPN_SPLIT_LEFT_MAIN_CHANNEL, 1);
     log.info(`Configured LinnStrument non-MPE input mode on ${reason} (One Channel, ch1).`);
     return true;
   } catch (err) {
     log.warn(`Could not configure LinnStrument MPE input mode on ${reason}: ${err?.message || err}`);
     return false;
   }
-}
-
-function nrpn(value) {
-  const msb = value >> 7;
-  const lsb = value & 0x7f;
-  return [msb, lsb];
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function shiftOutputOctave(deltaOctaves) {
@@ -2114,66 +1997,20 @@ function getActiveLayoutRowOffset() {
   return getActiveLayoutRowOffsetCore(ext.config, defaultConfig);
 }
 
-function modTouchId(channel, noteNumber, fallbackCoord = "") {
-  if (Number.isFinite(noteNumber)) {
-    return `mod:${noteKey(channel || 1, noteNumber)}`;
-  }
-  return `mod:${channel || 1}:${fallbackCoord}`;
-}
-
 function overlayTouchIdForEvent(event) {
-  if (!event) {
-    return null;
-  }
-  if (event.coord && isControlOverlayTriggerCoord(event.coord)) {
-    return `overlay:${event.coord}`;
-  }
-  if (Number.isFinite(event.noteNumber)) {
-    return `overlay:${noteKey(event.channel || 1, event.noteNumber)}`;
-  }
-  if (event.coord) {
-    return `overlay:${event.coord}`;
-  }
-  return "overlay";
+  return overlayTouchIdForEventCore(event, isControlOverlayTriggerCoord);
 }
 
 function isMpeModeEnabled() {
   return isMpeModeEnabledCore(ext.config, defaultConfig);
 }
 
-function noteKey(channel, noteNumber) {
-  return `${channel}:${noteNumber}`;
-}
-
-function withInputSource(msg, source) {
-  if (!msg || typeof msg !== "object") {
-    return msg;
-  }
-  return { ...msg, __inputSource: source };
-}
-
 function markRecentLoopNoteOn(channel, noteNumber) {
-  const key = noteKey(channel, noteNumber);
-  ext.state.recentLoopNoteOns.set(key, performance.now());
+  markRecentLoopNoteOnCore(ext.state.recentLoopNoteOns, channel, noteNumber);
 }
 
 function wasRecentlyForwardedLoopNoteOn(channel, noteNumber, maxAgeMs = 30) {
-  const now = performance.now();
-  for (const [key, atMs] of ext.state.recentLoopNoteOns.entries()) {
-    if (now - atMs > maxAgeMs) {
-      ext.state.recentLoopNoteOns.delete(key);
-    }
-  }
-  const key = noteKey(channel, noteNumber);
-  const atMs = ext.state.recentLoopNoteOns.get(key);
-  if (!Number.isFinite(atMs)) {
-    return false;
-  }
-  return now - atMs <= maxAgeMs;
-}
-
-function getChannel(msg) {
-  return msg?.message?.channel ?? msg?.channel ?? 1;
+  return wasRecentlyForwardedLoopNoteOnCore(ext.state.recentLoopNoteOns, channel, noteNumber, maxAgeMs);
 }
 
 function scalePitchBendForConfig(value14) {
@@ -2207,27 +2044,8 @@ function shouldForwardPitchBendOnChannel(channel) {
   });
 }
 
-function setValue(id, value) {
-  const el = document.getElementById(id);
-  if (el) {
-    el.value = String(value ?? "");
-  }
-}
-
-function getValue(id) {
-  const el = document.getElementById(id);
-  return el ? el.value : "";
-}
-
 function parseLedColor(value, fallback = INSTRUMENT_COLORS.off) {
   return clampInt(value, 0, 11, fallback);
-}
-
-function setText(id, text) {
-  const el = document.getElementById(id);
-  if (el) {
-    el.textContent = text;
-  }
 }
 
 function debounce(fn, delay) {
