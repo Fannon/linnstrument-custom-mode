@@ -1,4 +1,4 @@
-# LinnStrument Custom Mode Web App (Prototype) Design
+# LinnStrument Custom Mode Web App Design
 
 ## Goal
 
@@ -8,9 +8,9 @@ Transform the existing LinnStrument light-guide tool into a browser-based custom
 - `1x` LinnStrument MIDI output (for cell colors + state sync)
 - `1x` user-selected MIDI loop output (to DAW/synth)
 
-This first prototype focuses on a single preconfigured layout instead of a full editor.
+This version focuses on a single preconfigured layout instead of a full editor.
 
-## Prototype Scope (Implemented)
+## Scope (Implemented)
 
 ### UI
 
@@ -88,7 +88,7 @@ This keeps routing logic independent from the UI rendering and is a good basis f
 
 ## LinnStrument MIDI Assumptions and Official Docs Usage
 
-This prototype uses the official MIDI notes in `tmp/midi.md` (provided in the repo) for two things:
+This implementation uses the official MIDI notes in `tmp/midi.md` (provided in the repo) for two things:
 
 ### 1) Cell coloring (LinnStrument output)
 
@@ -111,11 +111,11 @@ Uses CC-based custom cell colors:
 
 These are used to estimate the physical note-to-coordinate mapping (`deviceStartNote`, `deviceRowOffset`) and improve pad-coordinate decoding.
 
-## Key Technical Tradeoffs (Current Prototype)
+## Key Technical Tradeoffs (Current Implementation)
 
 ### Simplified, not full MPE routing
 
-The prototype does not yet fully remap all expressive dimensions (especially Y-axis CC / timbre and advanced MPE nuances) for the new scale-mapped notes. It currently forwards:
+The app does not yet fully remap all expressive dimensions (especially Y-axis CC / timbre and advanced MPE nuances) for the new scale-mapped notes. It currently forwards:
 
 - note on/off
 - pitch bend (with configurable horizontal scaling)
@@ -129,7 +129,7 @@ This is enough to validate the custom-scale workflow before implementing complet
 
 Pad-coordinate decoding is most reliable when the LinnStrument split is configured for **Channel Per Row**. The sync action warns if this is not the case.
 
-### Prototype targets 128-pad layout first
+### Targets 128-pad layout first
 
 The UI and preset layout are designed around the 16x8 surface. `linnStrumentSize` remains in config for future expansion but the current UX assumes 128 pads.
 

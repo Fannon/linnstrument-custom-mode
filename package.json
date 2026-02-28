@@ -1,7 +1,7 @@
 {
   "name": "linnstrument-custom-mode",
   "version": "0.1.0",
-  "description": "Browser-based LinnStrument custom mode prototype with scale layouts.",
+  "description": "Browser-based LinnStrument custom mode with scale layouts.",
   "packageManager": "bun@1.3.8",
   "scripts": {
     "build": "bun ./bin/updateLibs.js",

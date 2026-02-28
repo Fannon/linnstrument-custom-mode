@@ -4,7 +4,7 @@
 
 ## Project Overview
 
-A browser-based LinnStrument custom-mode prototype that:
+ A browser-based LinnStrument custom-mode app that:
 - Intercepts LinnStrument pad touches via Web MIDI
 - Remaps them through scale-aware preset layouts
 - Routes expressive MIDI (MPE or single-channel) to a DAW via a loop output
