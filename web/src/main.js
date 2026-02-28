@@ -87,6 +87,7 @@ const INSTRUMENT_COLORS = {
 
 const DEBUG_CONTROL_OVERLAY = false;
 const DEBUG_MIDI_FLOW = false;
+const DEBUG_PITCH_TRACE = false;
 const MIDIMECH_PRESET_ID = "midimech-v1";
 const MOD_WHEEL_SMOOTHING_ALPHA = 0.35;
 const AUTO_APPLY_FIELD_IDS = [
@@ -175,7 +176,7 @@ async function init() {
   await connectMidiFromConfig();
   await ensureLinnStrumentStandardLayout("startup");
   await configureLinnStrumentMpeInputMode(isMpeModeEnabled(), "startup");
-  await resendPitchBendRangeFromConfig();
+  await resendPitchBendRangeFromConfig({ includeLoop: false, source: "startup" });
   rebuildLayout();
 
   log.success("Prototype initialized.");
@@ -262,7 +263,7 @@ function bindUi() {
     await connectMidiFromConfig();
     await ensureLinnStrumentStandardLayout("reset-defaults");
     await configureLinnStrumentMpeInputMode(isMpeModeEnabled(), "reset-defaults");
-    await resendPitchBendRangeFromConfig();
+    await resendPitchBendRangeFromConfig({ includeLoop: false, source: "reset-defaults" });
     rebuildLayout({ paintInstrument: true });
     log.warn("Configuration reset to defaults.");
   });
@@ -271,14 +272,14 @@ function bindUi() {
     event.preventDefault();
     await ensureLinnStrumentStandardLayout("manual-restore");
     await configureLinnStrumentMpeInputMode(isMpeModeEnabled(), "manual-restore");
-    await resendPitchBendRangeFromConfig();
+    await resendPitchBendRangeFromConfig({ includeLoop: false, source: "manual-restore" });
     rebuildLayout({ paintInstrument: true });
     log.info("Reapplied LinnStrument standard input mode.");
   });
 
   document.getElementById("resendPbRange")?.addEventListener("click", async () => {
     readConfigFromUi();
-    await resendPitchBendRangeFromConfig();
+    await resendPitchBendRangeFromConfig({ includeLoop: true, source: "manual-resend" });
   });
 
   document.getElementById("panic")?.addEventListener("click", () => {
@@ -364,7 +365,7 @@ async function applyConfigChangeFromUi(triggerId = "ui-change") {
   }
 
   if (triggerId === "outputPitchBendRangeSemitones") {
-    await resendPitchBendRangeFromConfig();
+    await resendPitchBendRangeFromConfig({ includeLoop: true, source: "ui-output-bend-range" });
   }
 
   rebuildLayout();
@@ -616,7 +617,7 @@ async function connectMidiFromConfig() {
     }
   }
 
-  await resendPitchBendRangeFromConfig();
+  await resendPitchBendRangeFromConfig({ includeLoop: false, source: "connect-midi" });
 
   updateRoutingStatus();
 }
@@ -1026,6 +1027,14 @@ function handleNoteOn(msg) {
       }
 
       const outputChannel = resolveOutputChannel(event.channel, isMpeModeEnabled());
+      const hasActiveOnOutputChannel = Array.from(ext.state.routedNotesByPad.values()).some(
+        (entry) => entry.channel === outputChannel,
+      );
+      const lastPitchBend14 = ext.state.lastPitchBend14ByChannel.get(outputChannel);
+      if (!hasActiveOnOutputChannel && Number.isFinite(lastPitchBend14) && lastPitchBend14 !== 8192) {
+        // Avoid end-of-note snap: recenter bend only when a channel is reused for a new note.
+        sendLoopPitchBend14(8192, outputChannel);
+      }
 
       ext.state.routedNotesByPad.set(event.coord, {
         note: pad.outNote,
@@ -1034,6 +1043,11 @@ function handleNoteOn(msg) {
         sourceNoteNumber: event.noteNumber,
         sourceKey,
       });
+      if (DEBUG_PITCH_TRACE) {
+        console.debug(
+          `[pitch-trace] noteon inCh=${event.channel} inNote=${event.noteNumber} coord=${event.coord} -> outCh=${outputChannel} outNote=${pad.outNote}`,
+        );
+      }
       sendLoopNoteOn(pad.outNote, event.velocity, outputChannel);
       refreshDetectedChord();
       refreshSameOutputNoteHighlights(pad.outNote);
@@ -1203,11 +1217,6 @@ function handleChannelAftertouch(msg) {
     value = Math.round(msg.value * 127);
   }
 
-  console.debug(`[main] rx handleChannelAftertouch ch=${channel}`, { 
-    raw: data ? Array.from(data) : null,
-    extractedValue: value 
-  });
-
   const heldModCoordsOnChannel = Array.from(ext.state.modChannelsByPad.entries())
     .filter(([_touchId, ch]) => ch === channel)
     .map(([touchId]) => touchId);
@@ -1226,6 +1235,12 @@ function handleChannelAftertouch(msg) {
 function handleControlChange(msg) {
   const event = extractRawControlChangeEvent(msg);
   if (!event) {
+    return;
+  }
+
+  // Ignore transport/housekeeping CCs coming from the instrument input.
+  // Forwarding these can create startup spam in loop/DAW monitors.
+  if (event.controller === 120 || event.controller === 121 || event.controller === 123) {
     return;
   }
 
@@ -1272,7 +1287,12 @@ function handleControlChange(msg) {
       sendLoopControlChange(event.controller, event.value7, outputChannel);
     });
   } else {
-    // Fallback: If no notes are held, route to the default mapped channel for this input channel
+    // In MPE mode, avoid forwarding idle expressive controllers when no note is active.
+    // LinnStrument emits these at rest, which causes startup/idle CC spam on loop output.
+    if (event.controller === 74 || event.controller === 11 || event.controller === 1) {
+      return;
+    }
+    // For non-expressive CCs, keep the existing fallback behavior.
     const outputChannel = resolveOutputChannel(event.channel, true);
     sendLoopControlChange(event.controller, event.value7, outputChannel);
   }
@@ -1281,25 +1301,36 @@ function handleControlChange(msg) {
 function handlePitchBend(msg) {
   const channel = getChannel(msg);
   const value14 = getPitchBend14(msg);
-  const scaled14 = scalePitchBendForConfig(value14);
+  const routedEntries = Array.from(ext.state.routedNotesByPad.values());
+  const outputChannels = listOutputChannelsForInputChannel(routedEntries, channel);
+  if (DEBUG_PITCH_TRACE) {
+    const data = msg?.message?.data || msg?.data || msg?.dataBytes;
+    console.debug(
+      `[pitch-trace] bend inCh=${channel} value14=${value14} routedOut=${outputChannels.join(",") || "-"} raw=${data ? Array.from(data).join(",") : "-"}`,
+    );
+  }
+
+  if (isMpeModeEnabled()) {
+    // Keep MPE slide behavior transparent: pass incoming bend through 1:1,
+    // targeting routed output channel(s) for this input channel.
+    if (outputChannels.length > 0) {
+      outputChannels.forEach((outputChannel) => {
+        sendLoopPitchBend14(value14, outputChannel);
+      });
+    }
+    return;
+  }
 
   if (!shouldForwardPitchBendOnChannel(channel)) {
     return;
   }
 
-  if (!isMpeModeEnabled()) {
-    if (shouldSuppressNonMpePitchBend()) {
-      sendLoopPitchBend14(8192, 1);
-      return;
-    }
-    sendLoopPitchBend14(scaled14, 1);
+  const scaled14 = scalePitchBendForConfig(value14);
+  if (shouldSuppressNonMpePitchBend()) {
+    sendLoopPitchBend14(8192, 1);
     return;
   }
-
-  const outputChannels = listOutputChannelsForInputChannel(Array.from(ext.state.routedNotesByPad.values()), channel);
-  outputChannels.forEach((outputChannel) => {
-    sendLoopPitchBend14(scaled14, outputChannel);
-  });
+  sendLoopPitchBend14(scaled14, 1);
 }
 
 function findRoutedEntryBySourceKey(sourceKey) {
@@ -1341,12 +1372,6 @@ function finalizeRoutedNoteOff(coord, velocity) {
   sendLoopNoteOff(routed.note, velocity, routed.channel);
   ext.state.routedNotesByPad.delete(coord);
   refreshDetectedChord();
-  const remainingOnOutputChannel = Array.from(ext.state.routedNotesByPad.values()).find(
-    (entry) => entry.channel === routed.channel,
-  );
-  if (!remainingOnOutputChannel) {
-    sendLoopPitchBend14(8192, routed.channel);
-  }
   refreshSameOutputNoteHighlights(routed.note);
   refreshInstrumentSameOutputNoteHighlights(routed.note);
   return true;
@@ -1680,11 +1705,11 @@ function getCurrentModWheelValue() {
 
 function sendLoopNoteOn(noteNumber, velocity = 100, channel = 1) {
   const out = ext.midi.loopOutput;
-  if (!out || !out.channels?.[channel]) {
+  if (!out) {
     return;
   }
 
-  out.channels[channel].playNote(noteNumber, { rawAttack: clampInt(velocity, 0, 127, 100) });
+  sendRawToLoop([0x90 | ((channel - 1) & 0x0f), noteNumber & 0x7f, clampInt(velocity, 0, 127, 100)]);
   if (DEBUG_MIDI_FLOW) {
     const line = `[tx noteon] ch=${channel} note=${noteNumber} vel=${clampInt(velocity, 0, 127, 100)}`;
     log.info(line);
@@ -1702,11 +1727,11 @@ function sendLoopNoteOn(noteNumber, velocity = 100, channel = 1) {
 
 function sendLoopNoteOff(noteNumber, velocity = 0, channel = 1) {
   const out = ext.midi.loopOutput;
-  if (!out || !out.channels?.[channel]) {
+  if (!out) {
     return;
   }
 
-  out.channels[channel].stopNote(noteNumber, { rawRelease: clampInt(velocity, 0, 127, 0) });
+  sendRawToLoop([0x80 | ((channel - 1) & 0x0f), noteNumber & 0x7f, clampInt(velocity, 0, 127, 0)]);
   if (DEBUG_MIDI_FLOW) {
     const line = `[tx noteoff] ch=${channel} note=${noteNumber} vel=${clampInt(velocity, 0, 127, 0)}`;
     log.info(line);
@@ -1748,7 +1773,27 @@ function sendLoopChannelAftertouch(value, channel = 1) {
 
 function sendLoopPitchBend14(value14, channel = 1) {
   const bend = clampInt(value14, 0, 16383, 8192);
-  sendRawToLoop([0xe0 | ((channel - 1) & 0x0f), bend & 0x7f, (bend >> 7) & 0x7f]);
+  const out = ext.midi.loopOutput;
+  if (!out) {
+    return;
+  }
+
+  // Prefer WebMidi channel API for bend to maximize compatibility with virtual loop ports/DAWs.
+  if (out.channels?.[channel]?.sendPitchBend) {
+    try {
+      const normalized = Math.max(-1, Math.min(1, (bend - 8192) / 8192));
+      out.channels[channel].sendPitchBend(normalized);
+    } catch (err) {
+      console.warn("[pitch-trace] channel sendPitchBend failed, falling back to raw", {
+        channel,
+        bend,
+        error: err?.message || err,
+      });
+      sendRawToLoop([0xe0 | ((channel - 1) & 0x0f), bend & 0x7f, (bend >> 7) & 0x7f]);
+    }
+  } else {
+    sendRawToLoop([0xe0 | ((channel - 1) & 0x0f), bend & 0x7f, (bend >> 7) & 0x7f]);
+  }
   ext.state.lastPitchBend14ByChannel.set(channel, bend);
 }
 
@@ -1758,7 +1803,9 @@ function sendRawToLoop(data) {
     return;
   }
 
-  console.debug("[main] tx loop raw", data);
+  if (DEBUG_MIDI_FLOW) {
+    console.debug("[main] tx loop raw", data);
+  }
   try {
     out.send(data);
   } catch (err) {
@@ -1786,7 +1833,7 @@ function setLoopPitchBendRangeSemitones(semitones = defaultConfig.outputPitchBen
   return true;
 }
 
-async function resendPitchBendRangeFromConfig() {
+async function resendPitchBendRangeFromConfig({ includeLoop = false, source = "unspecified" } = {}) {
   const semitones = clampInt(
     ext.config.outputPitchBendRangeSemitones,
     0,
@@ -1798,7 +1845,7 @@ async function resendPitchBendRangeFromConfig() {
     setValue("outputPitchBendRangeSemitones", semitones);
     persistConfig(ext.config);
   }
-  const loopSent = setLoopPitchBendRangeSemitones(semitones);
+  const loopSent = includeLoop ? setLoopPitchBendRangeSemitones(semitones) : false;
   if (ext.midi.instrumentOutput) {
     try {
       await setLinnStrumentParamValue(NRPN.SPLIT_LEFT_BEND_RANGE, semitones);
@@ -1808,7 +1855,7 @@ async function resendPitchBendRangeFromConfig() {
     }
   }
   log.info(
-    `Resent pitch bend range: ±${semitones} semitones (loop=${loopSent ? "ok" : "skipped"}, linnstrument=${ext.midi.instrumentOutput ? "ok/attempted" : "skipped"}).`,
+    `Resent pitch bend range (${source}): ±${semitones} semitones (loop=${loopSent ? "ok" : "skipped"}, linnstrument=${ext.midi.instrumentOutput ? "ok/attempted" : "skipped"}).`,
   );
 }
 

@@ -215,3 +215,8 @@ These modules have no dedicated unit tests. They are exercised indirectly throug
 4. **Run `bun run verify`** — ensures lint, tests, and build all pass.
 5. **Run `bun run test:e2e`** — if you changed any UI, routing, or MIDI behavior.
 6. **Commit and PR** — reference the item ID in the commit message, e.g. `fix: deduplicate coordKey helper (B1)`.
+
+## Codex Sessions
+
+run codex resume 019ca53b-3fc7-7003-bdb2-404736a442c1
+

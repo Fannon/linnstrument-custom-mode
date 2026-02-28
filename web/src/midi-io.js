@@ -87,27 +87,21 @@ export function attachInstrumentInputListeners(input, handlers) {
     withInputSource,
   } = handlers;
   input.addListener("noteon", (msg) => {
-    console.debug("[midi-io] rx instrument noteon", msg);
     handleNoteOn(withInputSource(msg, "instrument"));
   });
   input.addListener("noteoff", (msg) => {
-    console.debug("[midi-io] rx instrument noteoff", msg);
     handleNoteOff(withInputSource(msg, "instrument"));
   });
   input.addListener("controlchange", (msg) => {
-    console.debug("[midi-io] rx instrument controlchange", msg);
     handleControlChange(withInputSource(msg, "instrument"));
   });
   input.addListener("keyaftertouch", (msg) => {
-    console.debug("[midi-io] rx instrument keyaftertouch (poly pressure)", msg);
     handlePolyPressure(withInputSource(msg, "instrument"));
   });
   input.addListener("channelaftertouch", (msg) => {
-    console.debug("[midi-io] rx instrument channelaftertouch", msg);
     handleChannelAftertouch(withInputSource(msg, "instrument"));
   });
   input.addListener("pitchbend", (msg) => {
-    console.debug("[midi-io] rx instrument pitchbend", msg);
     handlePitchBend(withInputSource(msg, "instrument"));
   });
 }

@@ -5,7 +5,23 @@ export function noteKey(channel, noteNumber) {
 }
 
 export function getChannel(msg) {
-  return msg?.message?.channel ?? msg?.channel ?? 1;
+  // Prefer status-byte decoding for consistency across WebMidi event variants.
+  const data = msg?.message?.data || msg?.data || msg?.dataBytes;
+  const status = data?.[0];
+  if (Number.isFinite(status) && status >= 0x80 && status <= 0xef) {
+    return (status & 0x0f) + 1;
+  }
+
+  const explicitChannel = msg?.message?.channel ?? msg?.channel;
+  if (Number.isFinite(explicitChannel)) {
+    // Some wrappers expose 0..15, others 1..16.
+    if (explicitChannel >= 0 && explicitChannel <= 15) {
+      return explicitChannel + 1;
+    }
+    return explicitChannel;
+  }
+
+  return 1;
 }
 
 export function withInputSource(msg, source) {
@@ -115,12 +131,7 @@ export function extractRawTouchEvent(msg) {
     velocity: clampInt(velocity, 0, 127, 0),
     coord: typeof msg?.coord === "string" ? msg.coord : null,
   };
-  
-  console.debug(`[routing] extractRawTouchEvent type=${msg?.type}`, { 
-    raw: data ? Array.from(data) : null,
-    result 
-  });
-  
+
   return result;
 }
 
@@ -143,6 +154,5 @@ export function extractRawControlChangeEvent(msg) {
     channel: getChannel(msg),
     value7,
   };
-  console.debug("[routing] extractRawControlChangeEvent", result);
   return result;
 }

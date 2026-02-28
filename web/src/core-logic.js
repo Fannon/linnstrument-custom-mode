@@ -76,7 +76,13 @@ export function scaleNoteAt(rootMidi, mode, degreeIndex) {
 export function getPitchBend14(msg) {
   const dataBytes = msg?.dataBytes;
   if (dataBytes && dataBytes.length >= 2) {
-    return ((dataBytes[1] & 0x7f) << 7) | (dataBytes[0] & 0x7f);
+    // WebMidi payload may include status byte [0xEn, lsb, msb] or only [lsb, msb].
+    const hasStatus = dataBytes[0] >= 0x80;
+    const lsbIndex = hasStatus ? 1 : 0;
+    const msbIndex = hasStatus ? 2 : 1;
+    if (dataBytes.length > msbIndex) {
+      return ((dataBytes[msbIndex] & 0x7f) << 7) | (dataBytes[lsbIndex] & 0x7f);
+    }
   }
 
   if (Number.isFinite(msg?.rawValue)) {
