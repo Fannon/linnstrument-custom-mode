@@ -67,6 +67,7 @@ const NRPN_DEVICE_USER_FIRMWARE_MODE = 245;
 const STANDARD_DEVICE_START_NOTE = 0;
 const STANDARD_SPLIT_LEFT_OCTAVE_VALUE = 3;
 const STANDARD_SPLIT_LEFT_TRANSPOSE_PITCH_VALUE = 1;
+const FIXED_LINNSTRUMENT_PB_RANGE_SEMITONES = 48;
 const AUTO_APPLY_FIELD_IDS = [
   "instrumentInputPort",
   "instrumentOutputPort",
@@ -113,6 +114,7 @@ export const ext = {
     backchannelCoordsByKey: new Map(),
     backchannelPadRefCount: new Map(),
     routedNotesByPad: new Map(),
+    pendingPitchBendByInputChannel: new Map(),
     activeLoopNotes: new Set(),
     recentLoopNoteOns: new Map(),
     modPressuresByPad: new Map(),
@@ -121,7 +123,6 @@ export const ext = {
     lastPitchBend14ByChannel: new Map(),
     detectedChordName: "",
     instrumentPaintingEnabled: true,
-    webPointerTouchById: new Map(),
   },
   fn: {},
 };
@@ -139,6 +140,7 @@ WebMidi.enable()
 
 async function init() {
   ext.config = initConfig();
+  enforceFixedPitchBendRangeConfig({ persist: true, reason: "startup" });
 
   bindUi();
   bindMidiHotplugListeners();
@@ -150,6 +152,7 @@ async function init() {
   await connectMidiFromConfig();
   await ensureLinnStrumentStandardLayout("startup");
   await configureLinnStrumentMpeInputMode(isMpeModeEnabled(), "startup");
+  await resendPitchBendRangeFromConfig();
   rebuildLayout();
 
   log.success("Prototype initialized.");
@@ -205,6 +208,7 @@ function bindUi() {
     await connectMidiFromConfig();
     await ensureLinnStrumentStandardLayout("reset-defaults");
     await configureLinnStrumentMpeInputMode(isMpeModeEnabled(), "reset-defaults");
+    await resendPitchBendRangeFromConfig();
     rebuildLayout({ paintInstrument: true });
     log.warn("Configuration reset to defaults.");
   });
@@ -213,6 +217,7 @@ function bindUi() {
     event.preventDefault();
     await ensureLinnStrumentStandardLayout("manual-restore");
     await configureLinnStrumentMpeInputMode(isMpeModeEnabled(), "manual-restore");
+    await resendPitchBendRangeFromConfig();
     rebuildLayout({ paintInstrument: true });
     log.info("Reapplied LinnStrument standard input mode.");
   });
@@ -362,6 +367,7 @@ function populateUiFromConfig() {
   setValue("deviceStartNote", ext.config.deviceStartNote);
   setValue("deviceRowOffset", ext.config.deviceRowOffset);
   setValue("loopInputPort", ext.config.loopInputPort);
+  enforceFixedPitchBendRangeConfig();
 }
 
 function readConfigFromUi() {
@@ -390,12 +396,7 @@ function readConfigFromUi() {
     getValue("pitchSlideSemitonesPerPad"),
     defaultConfig.pitchSlideSemitonesPerPad,
   );
-  const outputPitchBendRangeSemitones = clampInt(
-    getValue("outputPitchBendRangeSemitones"),
-    1,
-    96,
-    defaultConfig.outputPitchBendRangeSemitones,
-  );
+  const outputPitchBendRangeSemitones = FIXED_LINNSTRUMENT_PB_RANGE_SEMITONES;
   const scaleModeHighlightNonRootWhiteRaw = getChecked("scaleModeHighlightNonRootWhite");
   const scaleModeHighlightNonRootWhite = scaleModeHighlightNonRootWhiteRaw === null
     ? Boolean(ext.config.scaleModeHighlightNonRootWhite ?? defaultConfig.scaleModeHighlightNonRootWhite)
@@ -430,6 +431,7 @@ function readConfigFromUi() {
   setValue("deviceRowOffset", ext.config.deviceRowOffset);
   setValue("stateTonicSelect", mod(ext.config.selectedKey ?? defaultConfig.selectedKey, 12));
   setValue("stateScaleSelect", ext.config.selectedModeId ?? defaultConfig.selectedModeId);
+  enforceFixedPitchBendRangeConfig();
 }
 
 function refreshPortSelectors({ autoSelectInstrument = false } = {}) {
@@ -552,7 +554,7 @@ function autoSelectLinnStrumentPorts() {
     }
   }
 
-  // Backchannel input has no default-name auto-selection.
+  // Lightguide input has no default-name auto-selection.
   // Keep it at (none) unless user explicitly picks one (or has one saved).
 }
 
@@ -612,7 +614,6 @@ async function connectMidiFromConfig() {
     ext.midi.loopOutput = WebMidi.getOutputByName(ext.config.loopOutputPort) || null;
     if (ext.midi.loopOutput) {
       log.success(`Connected loop output: ${ext.config.loopOutputPort}`);
-      setLoopPitchBendRangeSemitones(ext.config.outputPitchBendRangeSemitones);
     } else {
       log.warn(`Loop output not found: ${ext.config.loopOutputPort}`);
     }
@@ -624,11 +625,13 @@ async function connectMidiFromConfig() {
     ext.midi.loopInput = WebMidi.getInputByName(ext.config.loopInputPort) || null;
     if (ext.midi.loopInput) {
       attachLoopInputListeners(ext.midi.loopInput);
-      log.success(`Connected backchannel input: ${ext.config.loopInputPort}`);
+      log.success(`Connected lightguide input: ${ext.config.loopInputPort}`);
     } else {
-      log.warn(`Backchannel input not found: ${ext.config.loopInputPort}`);
+      log.warn(`Lightguide input not found: ${ext.config.loopInputPort}`);
     }
   }
+
+  await resendPitchBendRangeFromConfig();
 
   updateRoutingStatus();
 }
@@ -655,7 +658,7 @@ function detachLoopInputListeners() {
     try {
       ext.midi.loopInput.removeListener();
     } catch (err) {
-      console.warn("Failed to detach previous backchannel listeners", err);
+      console.warn("Failed to detach previous lightguide listeners", err);
     }
   }
 }
@@ -721,12 +724,6 @@ function bindSurfacePointerInput() {
     if (!touchEvent) {
       return;
     }
-    ext.state.webPointerTouchById.set(event.pointerId, coord);
-    try {
-      event.target?.setPointerCapture?.(event.pointerId);
-    } catch {
-      // Programmatic pointer events in tests may not have capturable pointer state.
-    }
     handleNoteOn({
       note: { number: touchEvent.noteNumber },
       channel: touchEvent.channel,
@@ -736,13 +733,11 @@ function bindSurfacePointerInput() {
   });
 
   const releasePointer = (event) => {
-    const trackedCoord = ext.state.webPointerTouchById.get(event.pointerId);
-    const coord = trackedCoord || extractCoordFromSurfaceEvent(event);
+    const coord = extractCoordFromSurfaceEvent(event);
     if (!coord) {
       return;
     }
     const touchEvent = createSurfaceTouchEventFromCoord(coord, 0);
-    ext.state.webPointerTouchById.delete(event.pointerId);
     if (!touchEvent) {
       return;
     }
@@ -1082,7 +1077,8 @@ function handleNoteOn(msg) {
         sourceNoteNumber: event.noteNumber,
         sourceKey,
       });
-      sendLoopPitchBend14(8192, outputChannel);
+      const pendingBend14 = consumePendingPitchBendForInputChannel(event.channel);
+      sendLoopPitchBend14(pendingBend14 ?? 8192, outputChannel);
       sendLoopNoteOn(pad.outNote, event.velocity, outputChannel);
       refreshDetectedChord();
       refreshSameOutputNoteHighlights(pad.outNote);
@@ -1269,11 +1265,18 @@ function handleControlChange(msg) {
 function handlePitchBend(msg) {
   const channel = getChannel(msg);
   const value14 = getPitchBend14(msg);
-  const scaled14 = scalePitchBendForConfig(value14);
+  const scaled14 = scalePitchBendForConfig(value14, msg);
 
   if (!shouldForwardPitchBendOnChannel(channel)) {
+    if (value14 === 8192) {
+      ext.state.pendingPitchBendByInputChannel.delete(channel);
+      return;
+    }
+    bufferPendingPitchBendForInputChannel(channel, value14, msg);
     return;
   }
+
+  ext.state.pendingPitchBendByInputChannel.delete(channel);
 
   if (!isMpeModeEnabled()) {
     if (shouldSuppressNonMpePitchBend()) {
@@ -1796,12 +1799,11 @@ function setLoopPitchBendRangeSemitones(semitones = 2) {
 }
 
 async function resendPitchBendRangeFromConfig() {
-  const semitones = clampInt(
-    ext.config.outputPitchBendRangeSemitones,
-    1,
-    96,
-    defaultConfig.outputPitchBendRangeSemitones,
-  );
+  const semitones = FIXED_LINNSTRUMENT_PB_RANGE_SEMITONES;
+  if (ext.config.outputPitchBendRangeSemitones !== semitones) {
+    ext.config.outputPitchBendRangeSemitones = semitones;
+    setValue("outputPitchBendRangeSemitones", semitones);
+  }
   const loopSent = setLoopPitchBendRangeSemitones(semitones);
   if (ext.midi.instrumentOutput) {
     try {
@@ -1831,6 +1833,7 @@ function allNotesOff() {
   }
   ext.state.activeLoopNotes.clear();
   ext.state.routedNotesByPad.clear();
+  ext.state.pendingPitchBendByInputChannel.clear();
   ext.state.recentLoopNoteOns.clear();
   ext.state.lastPitchBend14ByChannel.clear();
   ext.state.detectedChordName = "";
@@ -1851,6 +1854,7 @@ function clearHeldState() {
   ext.state.modPressuresByPad.clear();
   ext.state.modChannelsByPad.clear();
   ext.state.routedNotesByPad.clear();
+  ext.state.pendingPitchBendByInputChannel.clear();
   ext.state.activeLoopNotes.clear();
   ext.state.recentLoopNoteOns.clear();
   ext.state.lastPitchBend14ByChannel.clear();
@@ -1863,6 +1867,7 @@ function hasTransientPerformanceState() {
     || ext.state.modPressuresByPad.size > 0
     || ext.state.modChannelsByPad.size > 0
     || ext.state.routedNotesByPad.size > 0
+    || ext.state.pendingPitchBendByInputChannel.size > 0
     || ext.state.activeLoopNotes.size > 0
     || ext.state.recentLoopNoteOns.size > 0
     || ext.state.lastPitchBend14ByChannel.size > 0;
@@ -2142,6 +2147,9 @@ function overlayTouchIdForEvent(event) {
   if (!event) {
     return null;
   }
+  if (event.coord && isControlOverlayTriggerCoord(event.coord)) {
+    return `overlay:${event.coord}`;
+  }
   if (Number.isFinite(event.noteNumber)) {
     return `overlay:${noteKey(event.channel || 1, event.noteNumber)}`;
   }
@@ -2194,8 +2202,74 @@ function getChannel(msg) {
   return msg?.message?.channel ?? msg?.channel ?? 1;
 }
 
-function scalePitchBendForConfig(value14) {
-  return scalePitchBend14(value14, ext.config.pitchSlideSemitonesPerPad);
+function scalePitchBendForConfig(value14, msg = null) {
+  void msg;
+  // LinnStrument horizontal movement resolves to ~0.5 semitone per pad at
+  // fixed ±48 PB range. Scale incoming bend so the UI setting remains
+  // semitones-per-pad as labeled.
+  const desiredSemitonesPerPad = Number(ext.config.pitchSlideSemitonesPerPad)
+    || defaultConfig.pitchSlideSemitonesPerPad
+    || 1;
+  const nativeSemitonesPerPad = 0.5;
+  const factor = desiredSemitonesPerPad / nativeSemitonesPerPad;
+  return scalePitchBend14(value14, factor);
+}
+
+function enforceFixedPitchBendRangeConfig({ persist = false, reason = "" } = {}) {
+  const fixed = FIXED_LINNSTRUMENT_PB_RANGE_SEMITONES;
+  const changed = ext.config.outputPitchBendRangeSemitones !== fixed;
+  ext.config.outputPitchBendRangeSemitones = fixed;
+
+  const select = document.getElementById("outputPitchBendRangeSemitones");
+  if (select) {
+    select.value = String(fixed);
+    select.disabled = true;
+    select.title = `Fixed to ±${fixed} semitones to match LinnStrument input pitch bend.`;
+  }
+
+  if (changed && persist) {
+    persistConfig(ext.config);
+  }
+  if (changed && reason) {
+    log.info(`Forced pitch bend range to ±${fixed} semitones (${reason}).`);
+  }
+}
+
+function bufferPendingPitchBendForInputChannel(channel, value14, msg) {
+  if (!Number.isFinite(channel)) {
+    return;
+  }
+  ext.state.pendingPitchBendByInputChannel.set(channel, {
+    value14,
+    atMs: performance.now(),
+    source: msg?.__inputSource || "unknown",
+  });
+  if (DEBUG_MIDI_FLOW) {
+    const line = `[rx bend buffered] src=${msg?.__inputSource || "unknown"} ch=${channel} value14=${value14}`;
+    log.info(line);
+    console.debug(line);
+  }
+}
+
+function consumePendingPitchBendForInputChannel(channel, maxAgeMs = 160) {
+  if (!Number.isFinite(channel)) {
+    return null;
+  }
+  const pending = ext.state.pendingPitchBendByInputChannel.get(channel);
+  if (!pending) {
+    return null;
+  }
+  ext.state.pendingPitchBendByInputChannel.delete(channel);
+  if (performance.now() - pending.atMs > maxAgeMs) {
+    return null;
+  }
+  const scaled = scalePitchBendForConfig(pending.value14, { __inputSource: pending.source });
+  if (DEBUG_MIDI_FLOW) {
+    const line = `[rx bend consumed] src=${pending.source} ch=${channel} value14=${pending.value14} scaled14=${scaled}`;
+    log.info(line);
+    console.debug(line);
+  }
+  return scaled;
 }
 
 function shouldForwardPitchBendOnChannel(channel) {

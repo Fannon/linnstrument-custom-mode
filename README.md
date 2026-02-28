@@ -13,7 +13,7 @@ It turns LinnStrument into a preset-driven scale surface with live key/mode cont
 ## Features
 
 - Auto-detect LinnStrument input/output ports.
-- Select loop output (and optional backchannel input for note-highlighting feedback).
+- Select loop output (and optional lightguide input for note-highlighting feedback).
 - Two preset layouts:
   - `Scale Mode`
   - `Midimech` (whole-tone columns)

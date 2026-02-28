@@ -320,6 +320,27 @@ test("overlay toggle exposes controls and allows root + scale selection", async 
   await expect(page.locator("#stateScaleSelect")).toHaveValue("minor");
 });
 
+test("overlay trigger toggles reliably even if noteoff channel differs from noteon", async ({ page }) => {
+  const toggles = await page.evaluate(() => {
+    const input = window.__instrumentInput;
+    const base = Number(window.ext?.config?.deviceStartNote ?? 0);
+    const triggerNote = base; // coord 0-0
+
+    input.emit("noteon", { note: { number: triggerNote }, channel: 2, rawVelocity: 100 });
+    input.emit("noteoff", { note: { number: triggerNote }, channel: 3, rawVelocity: 0 });
+    const afterFirstTap = Boolean(window.ext?.state?.controlOverlay?.pinned);
+
+    input.emit("noteon", { note: { number: triggerNote }, channel: 2, rawVelocity: 100 });
+    input.emit("noteoff", { note: { number: triggerNote }, channel: 3, rawVelocity: 0 });
+    const afterSecondTap = Boolean(window.ext?.state?.controlOverlay?.pinned);
+
+    return { afterFirstTap, afterSecondTap };
+  });
+
+  expect(toggles.afterFirstTap).toBe(true);
+  expect(toggles.afterSecondTap).toBe(false);
+});
+
 test("selecting root note sends panic even when selecting current root", async ({ page }) => {
   const analysis = await page.evaluate(() => {
     window.__midiEvents.length = 0;
@@ -415,6 +436,38 @@ test("incoming standard MIDI routes note, pressure, bend, and timbre in MPE", as
   expect(analysis.pressureChannel).toBe(analysis.play.channel);
   expect(analysis.bendChannel).toBe(analysis.play.channel);
   expect(analysis.timbreChannel).toBe(analysis.play.channel);
+});
+
+test("horizontal slide setting scales incoming hardware pitch bend", async ({ page }) => {
+  const run = async (settingValue) => page.evaluate((value) => {
+    window.__midiEvents.length = 0;
+    window.ext.config.pitchSlideSemitonesPerPad = Number(value);
+    const input = window.__instrumentInput;
+    const base = Number(window.ext?.config?.deviceStartNote ?? 30);
+    const note = base + 2 + (2 * 16);
+
+    input.emit("noteon", { note: { number: note }, channel: 3, rawVelocity: 100 });
+    input.emit("pitchbend", { channel: 3, dataBytes: [0, 72] });
+    input.emit("noteoff", { note: { number: note }, channel: 3, rawVelocity: 0 });
+
+    const bends = window.__midiEvents
+      .filter((event) => event.output === "loopMIDI Port" && event.type === "raw" && (event.data?.[0] & 0xf0) === 0xe0)
+      .map((event) => ((event.data?.[2] || 0) << 7) | (event.data?.[1] || 0))
+      .filter((value14) => value14 !== 8192);
+    return bends.length > 0 ? bends[bends.length - 1] : null;
+  }, settingValue);
+
+  const bendAtHalf = await run(0.5);
+  const bendAtTwo = await run(2);
+
+  expect(bendAtHalf).toBeTruthy();
+  expect(bendAtTwo).toBeTruthy();
+
+  const deltaHalf = Math.abs(bendAtHalf - 8192);
+  const deltaTwo = Math.abs(bendAtTwo - 8192);
+  expect(deltaHalf).toBeGreaterThan(0);
+  expect(deltaTwo / deltaHalf).toBeGreaterThan(3.7);
+  expect(deltaTwo / deltaHalf).toBeLessThan(4.3);
 });
 
 test("same note number maps to same grid note even when input channel changes", async ({ page }) => {
