@@ -5,8 +5,8 @@ const MODE_IDS = new Set(MODES.map((mode) => mode.id));
 
 export const defaultConfig = {
   presetId: "scale-mode-basic-v1",
-  instrumentInputPort: "",
-  instrumentOutputPort: "",
+  instrumentInputPort: "LinnStrument MIDI",
+  instrumentOutputPort: "LinnStrument MIDI",
   loopOutputPort: "",
   loopInputPort: "",
   portSelectionLocked: false,
