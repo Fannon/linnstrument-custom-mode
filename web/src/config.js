@@ -20,7 +20,10 @@ export const defaultConfig = {
   pitchSlideSemitonesPerPadMech: 2,
   outputPitchBendRangeSemitones: 48,
   mpeEnabled: true,
-  scaleModeHighlightNonRootWhite: true,
+  colorModWheel: 2,
+  colorRootNote: 9,
+  colorScaleNote: 8,
+  colorNonScaleNote: 7,
   baseRootC: 36,
   selectedKey: 0,
   selectedModeId: "major",
@@ -34,48 +37,17 @@ export function initConfig() {
   }
 
   try {
-    const parsed = JSON.parse(raw);
-    const {
-      linnStrumentInputProtocol: _legacyProtocol,
-      assumeRowChannels: _legacyAssumeRowChannels,
-      userFirmwareSlideMode: _legacyUserFirmwareSlideMode,
-      userFirmwareSlideModeExplicit: _legacyUserFirmwareSlideModeExplicit,
-      userFirmwareTimbreEnabled: _legacyUserFirmwareTimbreEnabled,
-      userFirmwareTimbreCc: _legacyUserFirmwareTimbreCc,
-      userFirmwarePitchBendSmoothingEnabled: _legacyUserFirmwarePitchBendSmoothingEnabled,
-      userFirmwarePitchBendSmoothingStep14: _legacyUserFirmwarePitchBendSmoothingStep14,
-      assumeDefaultUserFirmwareSwitchMapping: _legacyAssumeDefaultUserFirmwareSwitchMapping,
-      userFirmwareDecimationMs: _legacyUserFirmwareDecimationMs,
-      userFirmwareAxesByRow: _legacyUserFirmwareAxesByRow,
-      ...parsedRest
-    } = parsed || {};
-    const legacyPitchSlide = Number.parseFloat(parsed?.pitchSlideSemitonesPerPad);
-    const legacyLayoutRowOffset = Number.parseInt(parsed?.layoutRowOffset, 10);
-    return {
-      ...defaultConfig,
-      ...parsedRest,
-      pitchSlideSemitonesPerPadStandard: Number.isFinite(Number(parsed?.pitchSlideSemitonesPerPadStandard))
-        ? parsed.pitchSlideSemitonesPerPadStandard
-        : Number.isFinite(legacyPitchSlide)
-          ? legacyPitchSlide
-          : defaultConfig.pitchSlideSemitonesPerPadStandard,
-      pitchSlideSemitonesPerPadMech: Number.isFinite(Number(parsed?.pitchSlideSemitonesPerPadMech))
-        ? parsed.pitchSlideSemitonesPerPadMech
-        : Number.isFinite(legacyPitchSlide)
-          ? legacyPitchSlide
-          : defaultConfig.pitchSlideSemitonesPerPadMech,
-      selectedModeId: MODE_IDS.has(parsedRest?.selectedModeId)
-        ? parsedRest.selectedModeId
-        : defaultConfig.selectedModeId,
-      layoutRowOffsetScale: Number.isFinite(Number(parsed?.layoutRowOffsetScale))
-        ? parsed.layoutRowOffsetScale
-        : Number.isFinite(legacyLayoutRowOffset)
-          ? legacyLayoutRowOffset
-          : defaultConfig.layoutRowOffsetScale,
-      layoutRowOffsetAllNotes: Number.isFinite(Number(parsed?.layoutRowOffsetAllNotes))
-        ? parsed.layoutRowOffsetAllNotes
-        : defaultConfig.layoutRowOffsetAllNotes,
-    };
+    const parsed = JSON.parse(raw) || {};
+    const next = {};
+    Object.keys(defaultConfig).forEach((key) => {
+      next[key] = Object.prototype.hasOwnProperty.call(parsed, key)
+        ? parsed[key]
+        : defaultConfig[key];
+    });
+    next.selectedModeId = MODE_IDS.has(next.selectedModeId)
+      ? next.selectedModeId
+      : defaultConfig.selectedModeId;
+    return next;
   } catch (err) {
     console.warn("Ignoring invalid stored config", err);
     return { ...defaultConfig };

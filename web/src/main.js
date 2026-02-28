@@ -19,7 +19,6 @@ import {
   getPitchBend14,
   scalePitchBend14,
   resolveNoOverlapPadCoord as resolveNoOverlapPadCoordCore,
-  shouldLightPlayablePad as shouldLightPlayablePadCore,
   getActiveLayoutRowOffset as getActiveLayoutRowOffsetCore,
 } from "./core-logic.js";
 import {
@@ -81,7 +80,10 @@ const AUTO_APPLY_FIELD_IDS = [
   "pitchSlideSemitonesPerPadStandard",
   "pitchSlideSemitonesPerPadMech",
   "outputPitchBendRangeSemitones",
-  "scaleModeHighlightNonRootWhite",
+  "colorModWheel",
+  "colorRootNote",
+  "colorScaleNote",
+  "colorNonScaleNote",
   "deviceStartNote",
   "deviceRowOffset",
 ];
@@ -355,10 +357,6 @@ function populateStateSelectors() {
 
 function populateUiFromConfig() {
   setValue("presetSelect", ext.config.presetId);
-  setChecked(
-    "scaleModeHighlightNonRootWhite",
-    Boolean(ext.config.scaleModeHighlightNonRootWhite ?? defaultConfig.scaleModeHighlightNonRootWhite),
-  );
   setValue("stateTonicSelect", mod(ext.config.selectedKey ?? defaultConfig.selectedKey, 12));
   setValue("stateScaleSelect", ext.config.selectedModeId ?? defaultConfig.selectedModeId);
   setValue("layoutRowOffsetScale", ext.config.layoutRowOffsetScale);
@@ -366,6 +364,10 @@ function populateUiFromConfig() {
   setValue("pitchSlideSemitonesPerPadStandard", ext.config.pitchSlideSemitonesPerPadStandard);
   setValue("pitchSlideSemitonesPerPadMech", ext.config.pitchSlideSemitonesPerPadMech);
   setValue("outputPitchBendRangeSemitones", ext.config.outputPitchBendRangeSemitones);
+  setValue("colorModWheel", parseLedColor(ext.config.colorModWheel, defaultConfig.colorModWheel));
+  setValue("colorRootNote", parseLedColor(ext.config.colorRootNote, defaultConfig.colorRootNote));
+  setValue("colorScaleNote", parseLedColor(ext.config.colorScaleNote, defaultConfig.colorScaleNote));
+  setValue("colorNonScaleNote", parseLedColor(ext.config.colorNonScaleNote, defaultConfig.colorNonScaleNote));
   setValue("deviceStartNote", ext.config.deviceStartNote);
   setValue("deviceRowOffset", ext.config.deviceRowOffset);
   setValue("loopInputPort", ext.config.loopInputPort);
@@ -407,10 +409,10 @@ function readConfigFromUi() {
     96,
     defaultConfig.outputPitchBendRangeSemitones,
   );
-  const scaleModeHighlightNonRootWhiteRaw = getChecked("scaleModeHighlightNonRootWhite");
-  const scaleModeHighlightNonRootWhite = scaleModeHighlightNonRootWhiteRaw === null
-    ? Boolean(ext.config.scaleModeHighlightNonRootWhite ?? defaultConfig.scaleModeHighlightNonRootWhite)
-    : scaleModeHighlightNonRootWhiteRaw;
+  const colorModWheel = parseLedColor(getValue("colorModWheel"), defaultConfig.colorModWheel);
+  const colorRootNote = parseLedColor(getValue("colorRootNote"), defaultConfig.colorRootNote);
+  const colorScaleNote = parseLedColor(getValue("colorScaleNote"), defaultConfig.colorScaleNote);
+  const colorNonScaleNote = parseLedColor(getValue("colorNonScaleNote"), defaultConfig.colorNonScaleNote);
   const deviceStartNote = clampInt(getValue("deviceStartNote"), 0, 127, defaultConfig.deviceStartNote);
   const deviceRowOffset = clampInt(getValue("deviceRowOffset"), 0, 24, defaultConfig.deviceRowOffset);
 
@@ -424,7 +426,10 @@ function readConfigFromUi() {
     pitchSlideSemitonesPerPadStandard,
     pitchSlideSemitonesPerPadMech,
     outputPitchBendRangeSemitones,
-    scaleModeHighlightNonRootWhite,
+    colorModWheel,
+    colorRootNote,
+    colorScaleNote,
+    colorNonScaleNote,
     deviceStartNote,
     deviceRowOffset,
     instrumentInputPort: getValue("instrumentInputPort") || "",
@@ -438,7 +443,10 @@ function readConfigFromUi() {
   setValue("pitchSlideSemitonesPerPadStandard", ext.config.pitchSlideSemitonesPerPadStandard);
   setValue("pitchSlideSemitonesPerPadMech", ext.config.pitchSlideSemitonesPerPadMech);
   setValue("outputPitchBendRangeSemitones", ext.config.outputPitchBendRangeSemitones);
-  setChecked("scaleModeHighlightNonRootWhite", Boolean(ext.config.scaleModeHighlightNonRootWhite));
+  setValue("colorModWheel", parseLedColor(ext.config.colorModWheel, defaultConfig.colorModWheel));
+  setValue("colorRootNote", parseLedColor(ext.config.colorRootNote, defaultConfig.colorRootNote));
+  setValue("colorScaleNote", parseLedColor(ext.config.colorScaleNote, defaultConfig.colorScaleNote));
+  setValue("colorNonScaleNote", parseLedColor(ext.config.colorNonScaleNote, defaultConfig.colorNonScaleNote));
   setValue("deviceStartNote", ext.config.deviceStartNote);
   setValue("deviceRowOffset", ext.config.deviceRowOffset);
   setValue("stateTonicSelect", mod(ext.config.selectedKey ?? defaultConfig.selectedKey, 12));
@@ -1970,7 +1978,7 @@ function getInstrumentColorForMeta(meta = {}, coord = null) {
   let color = INSTRUMENT_COLORS.disabled;
 
   if (meta.zone === "overlay-trigger") color = INSTRUMENT_COLORS.overlayTrigger;
-  if (meta.zone === "mod") color = INSTRUMENT_COLORS.mod;
+  if (meta.zone === "mod") color = parseLedColor(ext.config.colorModWheel, defaultConfig.colorModWheel);
   if (meta.zone === "key") {
     color = meta.selected
       ? INSTRUMENT_COLORS.selected
@@ -1984,18 +1992,12 @@ function getInstrumentColorForMeta(meta = {}, coord = null) {
   if (meta.zone === "all-notes-toggle") color = meta.selected ? INSTRUMENT_COLORS.allNotesOn : INSTRUMENT_COLORS.allNotesOff;
   if (meta.zone === "mpe") color = meta.selected ? INSTRUMENT_COLORS.mpeEnabled : INSTRUMENT_COLORS.mpeDisabled;
   if (meta.zone === "play") {
-    if (!ext.config.allNotesEnabled) {
-      const highlightScaleNonRootWhite = Boolean(
-        ext.config.scaleModeHighlightNonRootWhite ?? defaultConfig.scaleModeHighlightNonRootWhite,
-      );
-      color = isTonicPlayablePad
-        ? INSTRUMENT_COLORS.tonic
-        : (highlightScaleNonRootWhite ? INSTRUMENT_COLORS.play : INSTRUMENT_COLORS.off);
-    } else {
-      color = shouldLightPlayablePad(meta)
-        ? (isTonicPlayablePad ? INSTRUMENT_COLORS.tonic : INSTRUMENT_COLORS.play)
-        : INSTRUMENT_COLORS.off;
-    }
+    const rootColor = parseLedColor(ext.config.colorRootNote, defaultConfig.colorRootNote);
+    const scaleColor = parseLedColor(ext.config.colorScaleNote, defaultConfig.colorScaleNote);
+    const nonScaleColor = parseLedColor(ext.config.colorNonScaleNote, defaultConfig.colorNonScaleNote);
+    color = isTonicPlayablePad
+      ? rootColor
+      : (meta.inSelectedScale ? scaleColor : nonScaleColor);
   }
   if (meta.zone === "disabled") color = INSTRUMENT_COLORS.off;
 
@@ -2165,10 +2167,6 @@ function overlayTouchIdForEvent(event) {
   return "overlay";
 }
 
-function shouldLightPlayablePad(meta) {
-  return shouldLightPlayablePadCore(meta, ext.config.allNotesEnabled);
-}
-
 function isMpeModeEnabled() {
   return isMpeModeEnabledCore(ext.config, defaultConfig);
 }
@@ -2246,24 +2244,13 @@ function setValue(id, value) {
   }
 }
 
-function setChecked(id, checked) {
-  const el = document.getElementById(id);
-  if (el && "checked" in el) {
-    el.checked = Boolean(checked);
-  }
-}
-
 function getValue(id) {
   const el = document.getElementById(id);
   return el ? el.value : "";
 }
 
-function getChecked(id) {
-  const el = document.getElementById(id);
-  if (!el || !("checked" in el)) {
-    return null;
-  }
-  return Boolean(el.checked);
+function parseLedColor(value, fallback = INSTRUMENT_COLORS.off) {
+  return clampInt(value, 0, 11, fallback);
 }
 
 function setText(id, text) {

@@ -1,93 +1,105 @@
 # LinnStrument Custom Mode Prototype (Web MIDI)
 
-Browser-based LinnStrument custom-mode prototype.  
-It turns LinnStrument into a preset-driven scale surface with live key/mode controls and MIDI routing to a loop/DAW output.
+Browser-based LinnStrument custom-mode surface and MIDI router.
 
-## Current State
+## User Guide
 
-- Active runtime is a static web app served from `web/` using Web MIDI (`webmidi`).
-- Startup enforces a deterministic LinnStrument physical map (no-overlap notes `0..127`) and applies current MPE mode.
-- Core unit/syntax/build checks are passing via `bun run verify`.
-- One Playwright e2e test is currently failing around reset behavior (see `docs/todo.md`).
+### What It Does
 
-## Features
+- Uses LinnStrument as the input surface.
+- Maps touched pads to a selected output layout.
+- Sends notes/pressure/timbre/pitch bend to a loop/DAW MIDI output.
+- Optionally reads a `Lightguide Input` to show playback highlights on the web grid.
+- Paints LinnStrument LEDs with custom pad colors.
 
-- Auto-detect LinnStrument input/output ports.
-- Select loop output (and optional lightguide input for note-highlighting feedback).
-- Two preset layouts:
-  - `Scale Mode`
-  - `Midimech` (whole-tone columns)
-- Control overlay on bottom-left pad:
-  - tap: latch overlay
-  - hold: momentary overlay
-- Bottom row behavior:
-  - pads `1..13`: Modwheel (`CC1`) via pressure
-  - last two pads: octave down/up
-- On-device controls for key, scale mode, all-notes toggle, preset switch, and MPE toggle.
-- Pitch-bend scaling options:
-  - `1 pad = 0.5 semitones`
-  - `1 pad = 1 semitone`
-  - `1 pad = 2 semitones`
-- Browser surface visualization plus optional LinnStrument LED painting (`CC20/21/22`).
+### Requirements
 
-## MIDI Routing Model
+- Chrome or Edge (Web MIDI support).
+- LinnStrument connected by USB MIDI.
+- Optional virtual loop MIDI port (for DAW routing), e.g. `loopMIDI` on Windows.
 
-- `1x` LinnStrument MIDI input
-- `1x` LinnStrument MIDI output (device config + LED painting)
-- `1x` loop MIDI output (instrument/DAW target)
-- Optional loop/backchannel MIDI input for pad highlight feedback
-
-MPE enabled:
-- note + bend + pressure/timbre follow per-note channels
-
-MPE disabled:
-- routed notes are forced to channel `1`
-- non-MPE multi-note bend is suppressed to center
-
-## Requirements
-
-- Web MIDI capable browser (Chrome/Edge)
-- LinnStrument over USB MIDI
-- Optional virtual MIDI loop device (for example `loopMIDI` on Windows)
-
-## Dev Setup
+### Start
 
 ```bash
 bun install
 bun run start
 ```
 
-Notes:
-- Bun-first workflow; treat `bun.lock` as authoritative.
-- `package-lock.json` is intentionally not tracked; use Bun for dependency updates.
-- `bun run start` triggers `prestart` and rebuilds `web/lib/*`.
-- `bun run build` runs `bun ./bin/updateLibs.js` to refresh bundled frontend libs.
+Open the local app URL shown by the dev server.
 
-## Test & Verify
+### Connection Setup
+
+In `Connections`:
+
+- `LinnStrument Input`: MIDI input from the device.
+- `LinnStrument Output`: MIDI output to the device (LED painting + setup NRPN).
+- `MIDI Loop Output`: where routed notes are sent (DAW or virtual loop).
+- `Lightguide Input` (optional): MIDI input used only for visual note highlights.
+
+Behavior notes:
+
+- Port selections are saved in browser storage.
+- After you choose ports manually, auto-detection is locked until `Reset Defaults`.
+- `Refresh Ports` rescans Web MIDI devices.
+
+### Playing Workflow
+
+- Bottom-left pad (`Ctl`) toggles the control overlay.
+- Bottom row:
+  - pads `1..13`: Mod Wheel (`CC1`) by pressure
+  - last two pads: output octave down/up
+- Overlay controls include key, scale, all-notes mode, layout switch, and MPE toggle.
+- Two layouts are available:
+  - `Scale Mode`
+  - `Midimech` (reference: https://github.com/flipcoder/midimech)
+
+### Advanced Settings
+
+- `Pitch Bend Range`: default `±48`, configurable (`±0`, `±1`, `±2`, `±12`, `±24`, `±48`).
+  - Changes are sent to both loop output (RPN 0 on channels 1-16) and LinnStrument (NRPN 19 + 119).
+- `Horizontal Slide Pitch Bend (Standard Layout)`: default `1 semitone per pad`.
+- `Horizontal Slide Pitch Bend (Mech Layout)`: default `2 semitones per pad`.
+- `Color Root Note`, `Color Scale Note`, `Color Non-Scale Note`:
+  - each supports full LinnStrument color range plus `(none)`.
+  - defaults match the previous fixed behavior:
+    - root: orange (`9`)
+    - scale: white (`8`)
+    - non-scale: black (`7`)
+- `Color Mod Wheel Bar`: default yellow (`2`), configurable with the same color set.
+
+### Persistence and Reset
+
+- All settings are saved in browser local storage.
+- `Reset Defaults` clears saved settings and reapplies default routing/layout configuration.
+- `Restore` reapplies the standard LinnStrument mapping/mode setup without clearing your preferences.
+
+## MIDI Routing Model
+
+- Inputs:
+  - LinnStrument Input
+  - Optional Lightguide Input
+- Outputs:
+  - Loop Output (DAW target)
+  - LinnStrument Output (NRPN + LED control)
+
+MPE enabled:
+- Notes/bend/pressure/timbre follow per-note channels.
+
+MPE disabled:
+- Notes route to channel `1`.
+- Multi-note non-MPE bend is forced to center.
+
+## Development
 
 ```bash
 bun run test
 bun run build
 bun run verify
 bun run test:e2e
-bun run test:e2e:coverage
 ```
 
-- `test`: unit tests + syntax checks
-- `verify`: standard local gate (`test + build`)
-- `test:e2e`: Playwright browser regression suite
+## References
 
-## Known Issue
-
-- `Reset Defaults` currently resets local config/UI but does not re-send the full LinnStrument no-overlap/MPE NRPN setup sequence that startup sends.
-- Workaround: use `Restore LinnStrument` after reset.
-
-## Project References
-
-- Backlog / roadmap: `docs/todo.md`
+- Backlog: `docs/todo.md`
 - Design notes: `docs/custom-mode-web-app-design.md`
-- LinnStrument protocol references:
-  - `tmp/linnstrument-firmware/midi.md`
-  - `tmp/linnstrument-firmware/user_firmware_mode.md`
-  - `tmp/linnstrument-firmware/*.ino`
-- Agent/project guidance: `AGENT.md` and `AGENTS.md`
+- Protocol references: `tmp/linnstrument-firmware/midi.md`, `tmp/linnstrument-firmware/user_firmware_mode.md`

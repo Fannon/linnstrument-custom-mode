@@ -50,9 +50,12 @@ describe("config", () => {
     globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify(legacy));
 
     const config = initConfig();
-    expect(config.layoutRowOffsetScale).toBe(7);
+    expect(config.layoutRowOffsetScale).toBe(defaultConfig.layoutRowOffsetScale);
     expect(config.selectedModeId).toBe(defaultConfig.selectedModeId);
-    expect(config.scaleModeHighlightNonRootWhite).toBe(defaultConfig.scaleModeHighlightNonRootWhite);
+    expect(config.colorModWheel).toBe(defaultConfig.colorModWheel);
+    expect(config.colorRootNote).toBe(defaultConfig.colorRootNote);
+    expect(config.colorScaleNote).toBe(defaultConfig.colorScaleNote);
+    expect(config.colorNonScaleNote).toBe(defaultConfig.colorNonScaleNote);
     expect("linnStrumentInputProtocol" in config).toBe(false);
     expect("assumeRowChannels" in config).toBe(false);
     expect("userFirmwareSlideMode" in config).toBe(false);
@@ -88,14 +91,4 @@ describe("config", () => {
     expect(config.portSelectionLocked).toBe(true);
   });
 
-  test("initConfig migrates legacy horizontal slide setting to both layout profiles", () => {
-    const saved = {
-      pitchSlideSemitonesPerPad: 2,
-    };
-    globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
-
-    const config = initConfig();
-    expect(config.pitchSlideSemitonesPerPadStandard).toBe(2);
-    expect(config.pitchSlideSemitonesPerPadMech).toBe(2);
-  });
 });
