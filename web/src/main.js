@@ -141,6 +141,9 @@ export const ext = {
   fn: {},
 };
 window.ext = ext;
+let midiHotplugReconcileTimer = null;
+let midiHotplugReconcileInFlight = false;
+let midiHotplugReconcileQueued = false;
 
 WebMidi.enable()
   .then(init)
@@ -177,15 +180,46 @@ function bindMidiHotplugListeners() {
     return;
   }
 
-  WebMidi.addListener("connected", () => {
-    refreshPortSelectors({ autoSelectInstrument: shouldAutoSelectPorts() });
-    updateRoutingStatus();
+  WebMidi.addListener("connected", (event) => {
+    queueMidiHotplugReconcile("connected", event);
   });
 
-  WebMidi.addListener("disconnected", () => {
-    refreshPortSelectors({ autoSelectInstrument: shouldAutoSelectPorts() });
-    updateRoutingStatus();
+  WebMidi.addListener("disconnected", (event) => {
+    queueMidiHotplugReconcile("disconnected", event);
   });
+}
+
+function queueMidiHotplugReconcile(trigger = "hotplug", event = null) {
+  const portName = event?.port?.name ? ` (${event.port.name})` : "";
+  if (midiHotplugReconcileTimer) {
+    clearTimeout(midiHotplugReconcileTimer);
+  }
+  midiHotplugReconcileTimer = setTimeout(() => {
+    midiHotplugReconcileTimer = null;
+    void reconcileMidiAfterHotplug(`${trigger}${portName}`);
+  }, 90);
+}
+
+async function reconcileMidiAfterHotplug(trigger) {
+  if (midiHotplugReconcileInFlight) {
+    midiHotplugReconcileQueued = true;
+    return;
+  }
+
+  midiHotplugReconcileInFlight = true;
+  try {
+    refreshPortSelectors({ autoSelectInstrument: shouldAutoSelectPorts() });
+    await connectMidiFromConfig();
+    log.info(`Reconciled MIDI connections after ${trigger}.`);
+  } catch (err) {
+    log.warn(`Failed MIDI hot-plug reconcile after ${trigger}: ${err?.message || err}`);
+  } finally {
+    midiHotplugReconcileInFlight = false;
+    if (midiHotplugReconcileQueued) {
+      midiHotplugReconcileQueued = false;
+      queueMidiHotplugReconcile("queued-hotplug");
+    }
+  }
 }
 
 async function rescanMidiPortsAndReconnect() {
@@ -1916,10 +1950,18 @@ function highlightInstrumentHardwareXY(x, y, color) {
     return;
   }
 
-  const channel = out.channels[1];
-  channel.sendControlChange(20, x);
-  channel.sendControlChange(21, y);
-  channel.sendControlChange(22, color);
+  try {
+    const channel = out.channels[1];
+    channel.sendControlChange(20, x);
+    channel.sendControlChange(21, y);
+    channel.sendControlChange(22, color);
+  } catch (err) {
+    const name = out?.name || ext.config.instrumentOutputPort || "(unknown output)";
+    ext.midi.instrumentOutput = null;
+    updateRoutingStatus();
+    log.warn(`LinnStrument output became unavailable during LED update: ${name}.`);
+    console.warn("Instrument LED send failed", err);
+  }
 }
 
 async function setLinnStrumentParamValue(paramNumber, value) {
