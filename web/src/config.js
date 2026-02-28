@@ -21,7 +21,7 @@ export const defaultConfig = {
   outputPitchBendRangeSemitones: 48,
   mpeEnabled: true,
   colorModWheel: 2,
-  colorRootNote: 9,
+  colorRootNote: 4,
   colorScaleNote: 8,
   colorNonScaleNote: 7,
   baseRootC: 36,
