@@ -25,15 +25,10 @@ import {
 import {
   getRoutedInputChannel,
   isMpeModeEnabled as isMpeModeEnabledCore,
+  resolveOutputChannel,
   listOutputChannelsForInputChannel,
   shouldForwardPitchBendForInputChannel,
 } from "./mpe-routing.js";
-import {
-  allocateMpeVoice,
-  clearMpeVoiceAllocator,
-  createMpeVoiceAllocator,
-  releaseMpeVoice,
-} from "./mpe-voice-allocator.js";
 const MODE_BY_ID = Object.fromEntries(MODES.map((mode) => [mode.id, mode]));
 
 const INSTRUMENT_COLORS = {
@@ -58,7 +53,8 @@ const INSTRUMENT_COLORS = {
   sameNote: 1,
 };
 
-const DEBUG_CONTROL_OVERLAY = true;
+const DEBUG_CONTROL_OVERLAY = false;
+const DEBUG_MIDI_FLOW = true;
 const NRPN_SPLIT_LEFT_MIDI_MODE = 0;
 const NRPN_SPLIT_LEFT_MAIN_CHANNEL = 1;
 const NRPN_SPLIT_LEFT_PER_NOTE_CHANNEL_START = 2;
@@ -114,11 +110,11 @@ export const ext = {
     backchannelPadRefCount: new Map(),
     routedNotesByPad: new Map(),
     activeLoopNotes: new Set(),
+    recentLoopNoteOns: new Map(),
     modPressuresByPad: new Map(),
     modChannelsByPad: new Map(),
     controlOverlay: createControlOverlayState(),
     lastPitchBend14ByChannel: new Map(),
-    mpeVoices: createMpeVoiceAllocator({ minChannel: 2, maxChannel: 15 }),
     detectedChordName: "",
     instrumentPaintingEnabled: true,
     webPointerTouchById: new Map(),
@@ -511,10 +507,16 @@ async function connectMidiFromConfig() {
   ext.midi.loopInput = null;
 
   if (ext.config.instrumentInputPort) {
-    ext.midi.instrumentInput = WebMidi.getInputByName(ext.config.instrumentInputPort) || null;
-    if (ext.midi.instrumentInput) {
-      attachInstrumentInputListeners(ext.midi.instrumentInput);
-      log.success(`Connected LinnStrument input: ${ext.config.instrumentInputPort}`);
+    const candidateInstrumentInput = WebMidi.getInputByName(ext.config.instrumentInputPort) || null;
+    if (candidateInstrumentInput) {
+      if (isPotentialFeedbackInput(candidateInstrumentInput.name, ext.config.loopOutputPort)) {
+        ext.midi.instrumentInput = null;
+        log.error(`Instrument input "${candidateInstrumentInput.name}" matches loop output. Disabled instrument input to prevent MIDI feedback.`);
+      } else {
+        ext.midi.instrumentInput = candidateInstrumentInput;
+        attachInstrumentInputListeners(ext.midi.instrumentInput);
+        log.success(`Connected LinnStrument input: ${ext.config.instrumentInputPort}`);
+      }
     } else {
       log.error(`LinnStrument input not found: ${ext.config.instrumentInputPort}`);
     }
@@ -554,6 +556,13 @@ async function connectMidiFromConfig() {
   updateRoutingStatus();
 }
 
+function isPotentialFeedbackInput(inputName, loopOutputName) {
+  if (!inputName || !loopOutputName) {
+    return false;
+  }
+  return String(inputName).trim().toLowerCase() === String(loopOutputName).trim().toLowerCase();
+}
+
 function detachInstrumentInputListeners() {
   if (ext.midi.instrumentInput) {
     try {
@@ -575,12 +584,12 @@ function detachLoopInputListeners() {
 }
 
 function attachInstrumentInputListeners(input) {
-  input.addListener("noteon", (msg) => handleNoteOn(msg));
-  input.addListener("noteoff", (msg) => handleNoteOff(msg));
-  input.addListener("controlchange", (msg) => handleControlChange(msg));
-  input.addListener("keyaftertouch", (msg) => handlePolyPressure(msg));
-  input.addListener("channelaftertouch", (msg) => handleChannelAftertouch(msg));
-  input.addListener("pitchbend", (msg) => handlePitchBend(msg));
+  input.addListener("noteon", (msg) => handleNoteOn(withInputSource(msg, "instrument")));
+  input.addListener("noteoff", (msg) => handleNoteOff(withInputSource(msg, "instrument")));
+  input.addListener("controlchange", (msg) => handleControlChange(withInputSource(msg, "instrument")));
+  input.addListener("keyaftertouch", (msg) => handlePolyPressure(withInputSource(msg, "instrument")));
+  input.addListener("channelaftertouch", (msg) => handleChannelAftertouch(withInputSource(msg, "instrument")));
+  input.addListener("pitchbend", (msg) => handlePitchBend(withInputSource(msg, "instrument")));
 }
 
 function attachLoopInputListeners(input) {
@@ -898,6 +907,20 @@ function setMpeModeEnabled(enabled, options = {}) {
 }
 
 function handleNoteOn(msg) {
+  const raw = extractRawTouchEvent(msg);
+  if (raw && raw.velocity <= 0) {
+    handleNoteOff(msg);
+    return;
+  }
+  if (DEBUG_MIDI_FLOW && raw) {
+    const line = `[rx noteon] src=${msg?.__inputSource || "unknown"} ch=${raw.channel} note=${raw.noteNumber} vel=${raw.velocity}`;
+    log.info(line);
+    console.debug(line);
+  }
+  if (raw && msg?.__inputSource === "instrument" && wasRecentlyForwardedLoopNoteOn(raw.channel, raw.noteNumber)) {
+    return;
+  }
+
   const overlayEvent = normalizeOverlayTriggerEvent(msg, { debug: true, phase: "noteon" });
   if (overlayEvent) {
     debugControlOverlay("noteon:routed-to-overlay", overlayEvent);
@@ -962,25 +985,25 @@ function handleNoteOn(msg) {
         finalizeRoutedNoteOff(event.coord, 0);
       }
 
-      const mpeEnabled = isMpeModeEnabled();
-      const sourceKey = noteKey(event.channel, event.noteNumber);
-      const { channel: outputChannel, stolenInputKey } = mpeEnabled
-        ? allocateMpeVoice(ext.state.mpeVoices, sourceKey)
-        : { channel: 1, stolenInputKey: null };
-
-      if (stolenInputKey) {
-        const stolenEntry = findRoutedEntryBySourceKey(stolenInputKey);
-        if (stolenEntry) {
-          finalizeRoutedNoteOff(stolenEntry.coord, 0);
-          setPadHeld(stolenEntry.coord, false);
-        }
+      if (isMpeModeEnabled()) {
+        releaseRoutedEntriesForInputChannel(event.channel, event.coord);
       }
+
+      const sourceKey = noteKey(event.channel, event.noteNumber);
+      const existingSourceEntry = findRoutedEntryBySourceKey(sourceKey);
+      if (existingSourceEntry && existingSourceEntry.coord !== event.coord) {
+        finalizeRoutedNoteOff(existingSourceEntry.coord, 0);
+        setPadHeld(existingSourceEntry.coord, false);
+      }
+
+      const outputChannel = resolveOutputChannel(event.channel, isMpeModeEnabled());
 
       ext.state.routedNotesByPad.set(event.coord, {
         note: pad.outNote,
         channel: outputChannel,
         sourceChannel: event.channel,
         sourceNoteNumber: event.noteNumber,
+        sourceKey,
       });
       sendLoopPitchBend14(8192, outputChannel);
       sendLoopNoteOn(pad.outNote, event.velocity, outputChannel);
@@ -995,6 +1018,13 @@ function handleNoteOn(msg) {
 }
 
 function handleNoteOff(msg) {
+  const raw = extractRawTouchEvent(msg);
+  if (DEBUG_MIDI_FLOW && raw) {
+    const line = `[rx noteoff] src=${msg?.__inputSource || "unknown"} ch=${raw.channel} note=${raw.noteNumber} vel=${raw.velocity}`;
+    log.info(line);
+    console.debug(line);
+  }
+
   const overlayEvent = normalizeOverlayTriggerEvent(msg, { debug: true, phase: "noteoff" });
   if (overlayEvent) {
     debugControlOverlay("noteoff:routed-to-overlay", overlayEvent);
@@ -1043,6 +1073,10 @@ function handleNoteOff(msg) {
     }
     finalizeRoutedNoteOff(sourceEntry.coord, event.velocity);
     return;
+  }
+
+  if (isMpeModeEnabled()) {
+    releaseRoutedEntriesForInputChannel(event.channel, null, event.velocity);
   }
 
   if (pad.role === "mod") {
@@ -1187,12 +1221,25 @@ function findRoutedEntryBySourceKey(sourceKey) {
     return null;
   }
   for (const [coord, routed] of ext.state.routedNotesByPad.entries()) {
-    const key = noteKey(getRoutedInputChannel(routed), routed.sourceNoteNumber);
+    const key = routed?.sourceKey || noteKey(getRoutedInputChannel(routed), routed.sourceNoteNumber);
     if (key === sourceKey) {
       return { coord, routed };
     }
   }
   return null;
+}
+
+function releaseRoutedEntriesForInputChannel(inputChannel, keepCoord = null, velocity = 0) {
+  if (!Number.isFinite(inputChannel)) {
+    return;
+  }
+  const staleCoords = Array.from(ext.state.routedNotesByPad.entries())
+    .filter(([coord, routed]) => coord !== keepCoord && getRoutedInputChannel(routed) === inputChannel)
+    .map(([coord]) => coord);
+  staleCoords.forEach((coord) => {
+    setPadHeld(coord, false);
+    finalizeRoutedNoteOff(coord, velocity);
+  });
 }
 
 function extractRawControlChangeEvent(msg) {
@@ -1223,14 +1270,8 @@ function finalizeRoutedNoteOff(coord, velocity) {
     return false;
   }
 
-  const sourceChannel = getRoutedInputChannel(routed);
-  const sourceKey = noteKey(sourceChannel, routed.sourceNoteNumber);
-
   sendLoopNoteOff(routed.note, velocity, routed.channel);
   ext.state.routedNotesByPad.delete(coord);
-  if (isMpeModeEnabled()) {
-    releaseMpeVoice(ext.state.mpeVoices, sourceKey);
-  }
   refreshDetectedChord();
   const remainingOnOutputChannel = Array.from(ext.state.routedNotesByPad.values()).find(
     (entry) => entry.channel === routed.channel,
@@ -1581,6 +1622,12 @@ function sendLoopNoteOn(noteNumber, velocity = 100, channel = 1) {
   }
 
   out.channels[channel].playNote(noteNumber, { rawAttack: clampInt(velocity, 0, 127, 100) });
+  if (DEBUG_MIDI_FLOW) {
+    const line = `[tx noteon] ch=${channel} note=${noteNumber} vel=${clampInt(velocity, 0, 127, 100)}`;
+    log.info(line);
+    console.debug(line);
+  }
+  markRecentLoopNoteOn(channel, noteNumber);
   ext.state.activeLoopNotes.add(noteKey(channel, noteNumber));
 
   const coord = findCoordByRoutedNote(channel, noteNumber);
@@ -1597,6 +1644,11 @@ function sendLoopNoteOff(noteNumber, velocity = 0, channel = 1) {
   }
 
   out.channels[channel].stopNote(noteNumber, { rawRelease: clampInt(velocity, 0, 127, 0) });
+  if (DEBUG_MIDI_FLOW) {
+    const line = `[tx noteoff] ch=${channel} note=${noteNumber} vel=${clampInt(velocity, 0, 127, 0)}`;
+    log.info(line);
+    console.debug(line);
+  }
   ext.state.activeLoopNotes.delete(noteKey(channel, noteNumber));
 
   const coord = findCoordByRoutedNote(channel, noteNumber);
@@ -1702,8 +1754,8 @@ function allNotesOff() {
   }
   ext.state.activeLoopNotes.clear();
   ext.state.routedNotesByPad.clear();
+  ext.state.recentLoopNoteOns.clear();
   ext.state.lastPitchBend14ByChannel.clear();
-  clearMpeVoiceAllocator(ext.state.mpeVoices);
   ext.state.detectedChordName = "";
   updateChordStatusUi();
   refreshHeldCellClasses();
@@ -1723,8 +1775,8 @@ function clearHeldState() {
   ext.state.modChannelsByPad.clear();
   ext.state.routedNotesByPad.clear();
   ext.state.activeLoopNotes.clear();
+  ext.state.recentLoopNoteOns.clear();
   ext.state.lastPitchBend14ByChannel.clear();
-  clearMpeVoiceAllocator(ext.state.mpeVoices);
   ext.state.detectedChordName = "";
   updateChordStatusUi();
 }
@@ -1735,7 +1787,7 @@ function hasTransientPerformanceState() {
     || ext.state.modChannelsByPad.size > 0
     || ext.state.routedNotesByPad.size > 0
     || ext.state.activeLoopNotes.size > 0
-    || ext.state.mpeVoices.byInputKey.size > 0
+    || ext.state.recentLoopNoteOns.size > 0
     || ext.state.lastPitchBend14ByChannel.size > 0;
 }
 
@@ -2032,6 +2084,33 @@ function isMpeModeEnabled() {
 
 function noteKey(channel, noteNumber) {
   return `${channel}:${noteNumber}`;
+}
+
+function withInputSource(msg, source) {
+  if (!msg || typeof msg !== "object") {
+    return msg;
+  }
+  return { ...msg, __inputSource: source };
+}
+
+function markRecentLoopNoteOn(channel, noteNumber) {
+  const key = noteKey(channel, noteNumber);
+  ext.state.recentLoopNoteOns.set(key, performance.now());
+}
+
+function wasRecentlyForwardedLoopNoteOn(channel, noteNumber, maxAgeMs = 30) {
+  const now = performance.now();
+  for (const [key, atMs] of ext.state.recentLoopNoteOns.entries()) {
+    if (now - atMs > maxAgeMs) {
+      ext.state.recentLoopNoteOns.delete(key);
+    }
+  }
+  const key = noteKey(channel, noteNumber);
+  const atMs = ext.state.recentLoopNoteOns.get(key);
+  if (!Number.isFinite(atMs)) {
+    return false;
+  }
+  return (now - atMs) <= maxAgeMs;
 }
 
 function getChannel(msg) {

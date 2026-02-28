@@ -225,6 +225,36 @@ test("grid click sends note on and note off to loop output", async ({ page }) =>
   expect(noteOn.channel).toBe(noteOff.channel);
 });
 
+test("noteon with zero velocity is handled as noteoff and does not leave a stuck note", async ({ page }) => {
+  const lifecycle = await page.evaluate(() => {
+    window.__midiEvents.length = 0;
+    const input = window.__instrumentInput;
+    const base = Number(window.ext?.config?.deviceStartNote ?? 0);
+    const physicalPadNote = base + 16; // x=0,y=1 playable cell in no-overlap layout
+
+    input.emit("noteon", { note: { number: physicalPadNote }, channel: 3, rawVelocity: 100 });
+    input.emit("noteon", { note: { number: physicalPadNote }, channel: 3, rawVelocity: 0 });
+
+    const routed = window.__midiEvents.filter((event) =>
+      event.output === "loopMIDI Port" && (event.type === "playNote" || event.type === "stopNote"));
+
+    return {
+      routed,
+      activeLoopNotes: window.ext?.state?.activeLoopNotes?.size ?? -1,
+      routedNotesByPad: window.ext?.state?.routedNotesByPad?.size ?? -1,
+    };
+  });
+
+  const noteOn = lifecycle.routed.find((event) => event.type === "playNote");
+  const noteOff = lifecycle.routed.find((event) => event.type === "stopNote");
+  expect(noteOn).toBeTruthy();
+  expect(noteOff).toBeTruthy();
+  expect(noteOn.noteNumber).toBe(noteOff.noteNumber);
+  expect(noteOn.channel).toBe(noteOff.channel);
+  expect(lifecycle.activeLoopNotes).toBe(0);
+  expect(lifecycle.routedNotesByPad).toBe(0);
+});
+
 test("real mouse click on a play pad triggers note lifecycle", async ({ page }) => {
   await page.evaluate(() => {
     window.__midiEvents.length = 0;
