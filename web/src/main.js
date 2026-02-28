@@ -170,6 +170,8 @@ function bindUi() {
     populateUiFromConfig();
     refreshPortSelectors({ autoSelectInstrument: true });
     await connectMidiFromConfig();
+    await ensureLinnStrumentStandardLayout("reset-defaults");
+    await configureLinnStrumentMpeInputMode(isMpeModeEnabled(), "reset-defaults");
     rebuildLayout({ paintInstrument: true });
     log.warn("Configuration reset to defaults.");
   });

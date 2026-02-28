@@ -51,6 +51,7 @@ When routing/protocol behavior is unclear, verify against firmware sources befor
 
 - Treat this file as canonical and keep `AGENTS.md` aligned.
 - Prefer Bun tooling and keep `bun.lock` authoritative unless explicitly told otherwise.
+- Do not add or commit `package-lock.json` unless explicitly requested.
 - Focus edits in active app files under `web/` and tests under `test/` / `e2e/`.
 - For MIDI protocol changes, validate against `tmp/linnstrument-firmware/*.ino`.
 - Keep `web/index.html` and `bin/updateLibs.js` aligned when frontend dependencies change.

@@ -2,11 +2,11 @@
 
 ### Fixes (Highest Priority)
 
-- [ ] Re-apply LinnStrument standard no-overlap layout on `Reset Defaults` (same NRPN sequence used at startup and restore).  
+- [x] Re-apply LinnStrument standard no-overlap layout on `Reset Defaults` (same NRPN sequence used at startup and restore).  
   Reason: `bun run test:e2e` currently has one failing spec for this reset behavior.
-- [ ] Harden log rendering in `web/src/log.js` by replacing `innerHTML` string interpolation with safe DOM text nodes.  
+- [x] Harden log rendering in `web/src/log.js` by replacing `innerHTML` string interpolation with safe DOM text nodes.  
   Reason: external/device-provided strings (for example MIDI port names) should not be inserted as raw HTML.
-- [ ] Decide lockfile policy and enforce it (`bun.lock` only vs intentionally keeping `package-lock.json` too).
+- [x] Decide lockfile policy and enforce it (`bun.lock` only; `package-lock.json` removed from repo).
 
 ### Reliability & Dev-Ex Improvements
 

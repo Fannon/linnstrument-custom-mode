@@ -59,6 +59,7 @@ bun run start
 
 Notes:
 - Bun-first workflow; treat `bun.lock` as authoritative.
+- `package-lock.json` is intentionally not tracked; use Bun for dependency updates.
 - `bun run start` triggers `prestart` and rebuilds `web/lib/*`.
 - `bun run build` runs `bun ./bin/updateLibs.js` to refresh bundled frontend libs.
 
