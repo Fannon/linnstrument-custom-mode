@@ -46,11 +46,11 @@ function init () {
   const midiIn = host.getMidiInPort(0)
   midiOut = host.getMidiOutPort(0)
 
-  noteInput = midiIn.createNoteInput('LinnStrument In', '??????')
+  noteInput = midiIn.createNoteInput('LinnStrument In', '8?????', '9?????', 'A?????', 'B?????', 'D?????', 'E?????')
   noteInput.setShouldConsumeEvents(false)
 
   if (typeof noteInput.setUseExpressiveMidi === 'function') {
-    noteInput.setUseExpressiveMidi(true, 0, 24)
+    noteInput.setUseExpressiveMidi(true, 0, PITCH_BEND_RANGE)
   }
 
   midiIn.setMidiCallback(onMidi)
@@ -77,7 +77,7 @@ function init () {
     host.scheduleTask(() => {
       sendInitializationMessages()
       sendPitchBendRange(PITCH_BEND_RANGE)
-    }, 2000)
+    }, 1000)
   }
 }
 
@@ -90,6 +90,18 @@ function exit () {
 function onMidi (status, data1, data2) {
   const msg = status & 0xF0
   const channelZeroBased = status & 0x0F
+
+  if (msg === 0xE0) {
+    // Pitch Bend debug
+    const pb = (data2 << 7) | data1
+    println('Pitch Bend: ' + pb + ' (Ch ' + (channelZeroBased + 1) + ')')
+  } else if (msg === 0xB0) {
+    // CC debug
+    println('CC ' + data1 + ': ' + data2 + ' (Ch ' + (channelZeroBased + 1) + ')')
+  } else if (msg === 0xD0) {
+    // Channel Pressure debug
+    println('Pressure: ' + data1 + ' (Ch ' + (channelZeroBased + 1) + ')')
+  }
 
   if (data1 >= 0 && data1 <= 127) {
     const isNoteOn = msg === MSG_NOTE_ON && data2 > 0
