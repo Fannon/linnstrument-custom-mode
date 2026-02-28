@@ -1,31 +1,34 @@
 # 🎹 LinnStrument Custom Mode
 
-> **Play only the right notes.** A powerful browser-based "brain" for your [LinnStrument](https://www.rogerlinndesign.com/linnstrument) that redefines how you play, perform, and practice.
+> An alternative layout and "Scale Mode" for the [LinnStrument](https://www.rogerlinndesign.com/linnstrument), inspired by Launchpad and Midimech layouts.
 
 🚀 **[Try it live here!](https://fannon.github.io/linnstrument-custom-mode/)**
 
 ---
 
-## ✨ Why LinnStrument Custom Mode?
+## What is this?
 
-The LinnStrument is a beautiful, expressive instrument, but its built-in firmware has its limits. Sometimes you want to:
-- **Lock your grid to a specific scale** so you can never play a "wrong" note.
-- **Experiment with unique layouts** like the whole-tone based *Midimech*.
-- **Sync your hardware LEDs** to match your visual layout in real-time.
-- **See what you're playing** on a large, high-resolution screen.
+The LinnStrument is a beautiful, expressive instrument. This software provides an alternative way to map the pads and LEDs for more flexible playing:
+
+- **Simplified Scale Playing:** Lock your grid to a specific scale. In Scale Mode, the grid only contains "in-scale" notes, making it impossible to hit a wrong note—just like a Launchpad's scale mode.
+- **Fast Performance Overlays:** Use a dedicated "Ctl" pad to quickly pull up an overlay where you can change the root note, scale, or layout preset mid-performance.
+- **Improved Feedback:** Hardware LEDs are fully synced to match the on-screen scale, and your DAW can send notes back to the grid for lightguide highlighting.
+- **Alternative Layouts:** Includes *Midimech* (whole-tone columns with configurable row offset) and a highly configurable standard Scale Mode.
+
 
 This project uses the **Web MIDI API** to act as a bridge between your hardware and your DAW, giving you a flexible, software-powered layer of control that's as expressive as the hardware itself.
 
 ---
 
-## 🌟 Key Features
+## Key Features
 
-- 🎯 **Scale-Aware Remapping:** Every pad is intelligently mapped to your chosen scale. Skip the wrong notes and focus on the melody.
-- 🎨 **LED Painting:** Your LinnStrument's LEDs are automatically "painted" to match the on-screen scale colors.
-- 🌈 **Dynamic Color Themes:** The UI color theme matches your chosen LED colors, providing a consistent visual experience across screen and device.
-- 🎸 **MPE & Expression:** Full support for MPE (MIDI Polyphonic Expression), including pitch bend, pressure, and timbre per note.
-- 💡 **Lightguide Input:** Feed MIDI back into the app from your DAW to highlight notes on the grid—perfect for learning tracks or live visual feedback.
-- 🛠️ **Seamless Integration:** Works with your existing DAW via virtual MIDI ports (like loopMIDI or IAC).
+- **Scale-Aware Remapping:** Every pad is remapped to your chosen scale. In scale mode, only in-scale notes are present on the grid.
+- **Hardware Sync:** Your LinnStrument's LEDs are automatically updated to match the on-screen colors.
+- **Dynamic Themes:** The app's UI color theme mirrors your chosen LED colors for a unified look.
+- **Performance Overlay:** Quickly switch root note, scale, or layout preset during play via a dedicated control pad.
+- **Full Expression:** Complete support for MPE (pitch bend, pressure, timbre) per note.
+- **DAW Lightguide:** Feed MIDI from your DAW back into the app to highlight notes on the grid—useful for learning or visual feedback.
+
 
 ---
 
@@ -89,7 +92,7 @@ This project is built with vanilla JavaScript—no heavy frameworks, just clean 
 ### Project Structure
 ```text
 web/src/
-  main.js             # The "Brain" - orchestrates everything
+  main.js             # App entry point, MIDI handlers, UI binding
   colors.js           # Handles UI color palettes and hardware sync
   config.js           # Manages your saved preferences
   core-logic.js       # The math behind scales, chords, and pitch bend
