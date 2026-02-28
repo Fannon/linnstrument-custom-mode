@@ -59,6 +59,8 @@ const NRPN_SPLIT_LEFT_MIDI_MODE = 0;
 const NRPN_SPLIT_LEFT_MAIN_CHANNEL = 1;
 const NRPN_SPLIT_LEFT_PER_NOTE_CHANNEL_START = 2;
 const NRPN_SPLIT_LEFT_PER_NOTE_CHANNEL_END = 17;
+const NRPN_SPLIT_LEFT_BEND_RANGE = 19;
+const NRPN_SPLIT_RIGHT_BEND_RANGE = 119;
 const NRPN_SPLIT_LEFT_OCTAVE = 36;
 const NRPN_SPLIT_LEFT_TRANSPOSE_PITCH = 37;
 const NRPN_GLOBAL_SPLIT_ACTIVE = 200;
@@ -67,7 +69,7 @@ const NRPN_DEVICE_USER_FIRMWARE_MODE = 245;
 const STANDARD_DEVICE_START_NOTE = 0;
 const STANDARD_SPLIT_LEFT_OCTAVE_VALUE = 3;
 const STANDARD_SPLIT_LEFT_TRANSPOSE_PITCH_VALUE = 1;
-const FIXED_LINNSTRUMENT_PB_RANGE_SEMITONES = 48;
+const MIDIMECH_PRESET_ID = "midimech-v1";
 const AUTO_APPLY_FIELD_IDS = [
   "instrumentInputPort",
   "instrumentOutputPort",
@@ -76,7 +78,8 @@ const AUTO_APPLY_FIELD_IDS = [
   "presetSelect",
   "layoutRowOffsetScale",
   "layoutRowOffsetAllNotes",
-  "pitchSlideSemitonesPerPad",
+  "pitchSlideSemitonesPerPadStandard",
+  "pitchSlideSemitonesPerPadMech",
   "outputPitchBendRangeSemitones",
   "scaleModeHighlightNonRootWhite",
   "deviceStartNote",
@@ -139,7 +142,6 @@ WebMidi.enable()
 
 async function init() {
   ext.config = initConfig();
-  enforceFixedPitchBendRangeConfig({ persist: true, reason: "startup" });
 
   bindUi();
   bindMidiHotplugListeners();
@@ -361,12 +363,12 @@ function populateUiFromConfig() {
   setValue("stateScaleSelect", ext.config.selectedModeId ?? defaultConfig.selectedModeId);
   setValue("layoutRowOffsetScale", ext.config.layoutRowOffsetScale);
   setValue("layoutRowOffsetAllNotes", ext.config.layoutRowOffsetAllNotes);
-  setValue("pitchSlideSemitonesPerPad", ext.config.pitchSlideSemitonesPerPad);
+  setValue("pitchSlideSemitonesPerPadStandard", ext.config.pitchSlideSemitonesPerPadStandard);
+  setValue("pitchSlideSemitonesPerPadMech", ext.config.pitchSlideSemitonesPerPadMech);
   setValue("outputPitchBendRangeSemitones", ext.config.outputPitchBendRangeSemitones);
   setValue("deviceStartNote", ext.config.deviceStartNote);
   setValue("deviceRowOffset", ext.config.deviceRowOffset);
   setValue("loopInputPort", ext.config.loopInputPort);
-  enforceFixedPitchBendRangeConfig();
 }
 
 function readConfigFromUi() {
@@ -391,11 +393,20 @@ function readConfigFromUi() {
     12,
     defaultConfig.layoutRowOffsetAllNotes,
   );
-  const pitchSlideSemitonesPerPad = parsePitchSlideSetting(
-    getValue("pitchSlideSemitonesPerPad"),
-    defaultConfig.pitchSlideSemitonesPerPad,
+  const pitchSlideSemitonesPerPadStandard = parsePitchSlideSetting(
+    getValue("pitchSlideSemitonesPerPadStandard"),
+    defaultConfig.pitchSlideSemitonesPerPadStandard,
   );
-  const outputPitchBendRangeSemitones = FIXED_LINNSTRUMENT_PB_RANGE_SEMITONES;
+  const pitchSlideSemitonesPerPadMech = parsePitchSlideSetting(
+    getValue("pitchSlideSemitonesPerPadMech"),
+    defaultConfig.pitchSlideSemitonesPerPadMech,
+  );
+  const outputPitchBendRangeSemitones = clampInt(
+    getValue("outputPitchBendRangeSemitones"),
+    0,
+    96,
+    defaultConfig.outputPitchBendRangeSemitones,
+  );
   const scaleModeHighlightNonRootWhiteRaw = getChecked("scaleModeHighlightNonRootWhite");
   const scaleModeHighlightNonRootWhite = scaleModeHighlightNonRootWhiteRaw === null
     ? Boolean(ext.config.scaleModeHighlightNonRootWhite ?? defaultConfig.scaleModeHighlightNonRootWhite)
@@ -410,7 +421,8 @@ function readConfigFromUi() {
     selectedModeId,
     layoutRowOffsetScale,
     layoutRowOffsetAllNotes,
-    pitchSlideSemitonesPerPad,
+    pitchSlideSemitonesPerPadStandard,
+    pitchSlideSemitonesPerPadMech,
     outputPitchBendRangeSemitones,
     scaleModeHighlightNonRootWhite,
     deviceStartNote,
@@ -423,14 +435,14 @@ function readConfigFromUi() {
 
   setValue("layoutRowOffsetScale", ext.config.layoutRowOffsetScale);
   setValue("layoutRowOffsetAllNotes", ext.config.layoutRowOffsetAllNotes);
-  setValue("pitchSlideSemitonesPerPad", ext.config.pitchSlideSemitonesPerPad);
+  setValue("pitchSlideSemitonesPerPadStandard", ext.config.pitchSlideSemitonesPerPadStandard);
+  setValue("pitchSlideSemitonesPerPadMech", ext.config.pitchSlideSemitonesPerPadMech);
   setValue("outputPitchBendRangeSemitones", ext.config.outputPitchBendRangeSemitones);
   setChecked("scaleModeHighlightNonRootWhite", Boolean(ext.config.scaleModeHighlightNonRootWhite));
   setValue("deviceStartNote", ext.config.deviceStartNote);
   setValue("deviceRowOffset", ext.config.deviceRowOffset);
   setValue("stateTonicSelect", mod(ext.config.selectedKey ?? defaultConfig.selectedKey, 12));
   setValue("stateScaleSelect", ext.config.selectedModeId ?? defaultConfig.selectedModeId);
-  enforceFixedPitchBendRangeConfig();
 }
 
 function refreshPortSelectors({ autoSelectInstrument = false } = {}) {
@@ -1768,8 +1780,8 @@ function sendRawToLoop(data) {
   }
 }
 
-function setLoopPitchBendRangeSemitones(semitones = 2) {
-  const value = clampInt(semitones, 0, 127, 2);
+function setLoopPitchBendRangeSemitones(semitones = defaultConfig.outputPitchBendRangeSemitones) {
+  const value = clampInt(semitones, 0, 96, defaultConfig.outputPitchBendRangeSemitones);
   if (!ext.midi.loopOutput) {
     log.warn(`Skipped loop pitch bend range resend (no loop MIDI output). Intended value: ±${value} semitones.`);
     return false;
@@ -1789,15 +1801,22 @@ function setLoopPitchBendRangeSemitones(semitones = 2) {
 }
 
 async function resendPitchBendRangeFromConfig() {
-  const semitones = FIXED_LINNSTRUMENT_PB_RANGE_SEMITONES;
+  const semitones = clampInt(
+    ext.config.outputPitchBendRangeSemitones,
+    0,
+    96,
+    defaultConfig.outputPitchBendRangeSemitones,
+  );
   if (ext.config.outputPitchBendRangeSemitones !== semitones) {
     ext.config.outputPitchBendRangeSemitones = semitones;
     setValue("outputPitchBendRangeSemitones", semitones);
+    persistConfig(ext.config);
   }
   const loopSent = setLoopPitchBendRangeSemitones(semitones);
   if (ext.midi.instrumentOutput) {
     try {
-      await setLinnStrumentParamValue(19, semitones);
+      await setLinnStrumentParamValue(NRPN_SPLIT_LEFT_BEND_RANGE, semitones);
+      await setLinnStrumentParamValue(NRPN_SPLIT_RIGHT_BEND_RANGE, semitones);
     } catch (err) {
       console.warn("Failed to resend LinnStrument bend range", err);
     }
@@ -2190,35 +2209,27 @@ function getChannel(msg) {
 }
 
 function scalePitchBendForConfig(value14) {
-  // LinnStrument horizontal movement resolves to ~0.5 semitone per pad at
-  // fixed ±48 PB range. Scale incoming bend so the UI setting remains
-  // semitones-per-pad as labeled.
-  const desiredSemitonesPerPad = Number(ext.config.pitchSlideSemitonesPerPad)
-    || defaultConfig.pitchSlideSemitonesPerPad
-    || 1;
+  // LinnStrument horizontal movement resolves to ~0.5 semitone per pad in the
+  // standard profile. Scale incoming bend so the selected layout profile
+  // (standard/mech) matches the configured semitones-per-pad target.
+  const desiredSemitonesPerPad = getActivePitchSlideSemitonesPerPad();
   const nativeSemitonesPerPad = 0.5;
   const factor = desiredSemitonesPerPad / nativeSemitonesPerPad;
   return scalePitchBend14(value14, factor);
 }
 
-function enforceFixedPitchBendRangeConfig({ persist = false, reason = "" } = {}) {
-  const fixed = FIXED_LINNSTRUMENT_PB_RANGE_SEMITONES;
-  const changed = ext.config.outputPitchBendRangeSemitones !== fixed;
-  ext.config.outputPitchBendRangeSemitones = fixed;
-
-  const select = document.getElementById("outputPitchBendRangeSemitones");
-  if (select) {
-    select.value = String(fixed);
-    select.disabled = true;
-    select.title = `Fixed to ±${fixed} semitones to match LinnStrument input pitch bend.`;
+function getActivePitchSlideSemitonesPerPad() {
+  const isMech = ext.config.presetId === MIDIMECH_PRESET_ID;
+  if (isMech) {
+    return parsePitchSlideSetting(
+      ext.config.pitchSlideSemitonesPerPadMech,
+      defaultConfig.pitchSlideSemitonesPerPadMech,
+    );
   }
-
-  if (changed && persist) {
-    persistConfig(ext.config);
-  }
-  if (changed && reason) {
-    log.info(`Forced pitch bend range to ±${fixed} semitones (${reason}).`);
-  }
+  return parsePitchSlideSetting(
+    ext.config.pitchSlideSemitonesPerPadStandard,
+    defaultConfig.pitchSlideSemitonesPerPadStandard,
+  );
 }
 
 function shouldForwardPitchBendOnChannel(channel) {

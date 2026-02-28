@@ -16,7 +16,8 @@ export const defaultConfig = {
   deviceColOffset: 1,
   layoutRowOffsetScale: 4,
   layoutRowOffsetAllNotes: 5,
-  pitchSlideSemitonesPerPad: 1,
+  pitchSlideSemitonesPerPadStandard: 1,
+  pitchSlideSemitonesPerPadMech: 2,
   outputPitchBendRangeSemitones: 48,
   mpeEnabled: true,
   scaleModeHighlightNonRootWhite: true,
@@ -48,10 +49,21 @@ export function initConfig() {
       userFirmwareAxesByRow: _legacyUserFirmwareAxesByRow,
       ...parsedRest
     } = parsed || {};
+    const legacyPitchSlide = Number.parseFloat(parsed?.pitchSlideSemitonesPerPad);
     const legacyLayoutRowOffset = Number.parseInt(parsed?.layoutRowOffset, 10);
     return {
       ...defaultConfig,
       ...parsedRest,
+      pitchSlideSemitonesPerPadStandard: Number.isFinite(Number(parsed?.pitchSlideSemitonesPerPadStandard))
+        ? parsed.pitchSlideSemitonesPerPadStandard
+        : Number.isFinite(legacyPitchSlide)
+          ? legacyPitchSlide
+          : defaultConfig.pitchSlideSemitonesPerPadStandard,
+      pitchSlideSemitonesPerPadMech: Number.isFinite(Number(parsed?.pitchSlideSemitonesPerPadMech))
+        ? parsed.pitchSlideSemitonesPerPadMech
+        : Number.isFinite(legacyPitchSlide)
+          ? legacyPitchSlide
+          : defaultConfig.pitchSlideSemitonesPerPadMech,
       selectedModeId: MODE_IDS.has(parsedRest?.selectedModeId)
         ? parsedRest.selectedModeId
         : defaultConfig.selectedModeId,

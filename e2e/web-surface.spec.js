@@ -187,6 +187,8 @@ test("startup and reset request LinnStrument standard no-overlap layout", async 
   expect(startupEvents.some((event) => isNrpnRequest(event, 227, 0))).toBe(true); // no overlap
   expect(startupEvents.some((event) => isNrpnRequest(event, 36, 3))).toBe(true); // octave for note 0 base
   expect(startupEvents.some((event) => isNrpnRequest(event, 37, 1))).toBe(true); // transpose for note 0 base
+  expect(startupEvents.some((event) => isNrpnRequest(event, 19, 48))).toBe(true); // left bend range
+  expect(startupEvents.some((event) => isNrpnRequest(event, 119, 48))).toBe(true); // right bend range
   expect(startupEvents.some((event) => isNrpnRequest(event, 0, 1))).toBe(true); // MIDI Mode = Channel Per Note (MPE on default)
   expect(startupEvents.some((event) => isNrpnRequest(event, 1, 1))).toBe(true); // Main channel = 1
 
@@ -203,10 +205,51 @@ test("startup and reset request LinnStrument standard no-overlap layout", async 
       && events.some((event) => isNrpnRequest(event, 227, 0))
       && events.some((event) => isNrpnRequest(event, 36, 3))
       && events.some((event) => isNrpnRequest(event, 37, 1))
+      && events.some((event) => isNrpnRequest(event, 19, 48))
+      && events.some((event) => isNrpnRequest(event, 119, 48))
       && events.some((event) => isNrpnRequest(event, 0, 1))
       && events.some((event) => isNrpnRequest(event, 1, 1))
     );
   }).toBe(true);
+});
+
+test("changing pitch bend range updates loop and LinnStrument ranges", async ({ page }) => {
+  const assertRangeApplied = async (value) => {
+    await page.evaluate(() => {
+      window.__midiEvents.length = 0;
+    });
+    await page.selectOption("#outputPitchBendRangeSemitones", String(value));
+
+    await expect.poll(async () => page.evaluate((target) => {
+      const events = window.__midiEvents || [];
+      const decodePair = (pair) => {
+        if (!Array.isArray(pair) || pair.length < 2) {
+          return null;
+        }
+        return ((pair[0] & 0x7f) << 7) | (pair[1] & 0x7f);
+      };
+      const isNrpn = (event, param, valueNum) =>
+        event
+        && event.output === "LinnStrument Output"
+        && event.type === "nrpn-send"
+        && decodePair(event.param) === param
+        && decodePair(event.value) === valueNum;
+
+      const hasLeftNrpn = events.some((event) => isNrpn(event, 19, target));
+      const hasRightNrpn = events.some((event) => isNrpn(event, 119, target));
+      const hasLoopDataEntryMsb = events.some((event) =>
+        event.output === "loopMIDI Port"
+        && event.type === "raw"
+        && (event.data?.[0] & 0xf0) === 0xb0
+        && event.data?.[1] === 6
+        && event.data?.[2] === target
+      );
+      return hasLeftNrpn && hasRightNrpn && hasLoopDataEntryMsb;
+    }, value)).toBe(true);
+  };
+
+  await assertRangeApplied(24);
+  await assertRangeApplied(0);
 });
 
 test("grid click sends note on and note off to loop output", async ({ page }) => {
@@ -439,9 +482,14 @@ test("incoming standard MIDI routes note, pressure, bend, and timbre in MPE", as
 });
 
 test("horizontal slide setting scales incoming hardware pitch bend", async ({ page }) => {
-  const run = async (settingValue) => page.evaluate((value) => {
+  const run = async (presetId, settingValue) => page.evaluate(({ selectedPresetId, value }) => {
     window.__midiEvents.length = 0;
-    window.ext.config.pitchSlideSemitonesPerPad = Number(value);
+    window.ext.config.presetId = selectedPresetId;
+    if (selectedPresetId === "midimech-v1") {
+      window.ext.config.pitchSlideSemitonesPerPadMech = Number(value);
+    } else {
+      window.ext.config.pitchSlideSemitonesPerPadStandard = Number(value);
+    }
     const input = window.__instrumentInput;
     const base = Number(window.ext?.config?.deviceStartNote ?? 30);
     const note = base + 2 + (2 * 16);
@@ -455,19 +503,24 @@ test("horizontal slide setting scales incoming hardware pitch bend", async ({ pa
       .map((event) => ((event.data?.[2] || 0) << 7) | (event.data?.[1] || 0))
       .filter((value14) => value14 !== 8192);
     return bends.length > 0 ? bends[bends.length - 1] : null;
-  }, settingValue);
+  }, { selectedPresetId: presetId, value: settingValue });
 
-  const bendAtHalf = await run(0.5);
-  const bendAtTwo = await run(2);
+  const bendAtHalf = await run("scale-mode-basic-v1", 0.5);
+  const bendAtTwo = await run("scale-mode-basic-v1", 2);
+  const bendAtMechDefault = await run("midimech-v1", 2);
 
   expect(bendAtHalf).toBeTruthy();
   expect(bendAtTwo).toBeTruthy();
+  expect(bendAtMechDefault).toBeTruthy();
 
   const deltaHalf = Math.abs(bendAtHalf - 8192);
   const deltaTwo = Math.abs(bendAtTwo - 8192);
+  const deltaMechDefault = Math.abs(bendAtMechDefault - 8192);
   expect(deltaHalf).toBeGreaterThan(0);
   expect(deltaTwo / deltaHalf).toBeGreaterThan(3.7);
   expect(deltaTwo / deltaHalf).toBeLessThan(4.3);
+  expect(deltaMechDefault / deltaHalf).toBeGreaterThan(3.7);
+  expect(deltaMechDefault / deltaHalf).toBeLessThan(4.3);
 });
 
 test("same note number maps to same grid note even when input channel changes", async ({ page }) => {

@@ -87,4 +87,15 @@ describe("config", () => {
     expect(config.loopInputPort).toBe(saved.loopInputPort);
     expect(config.portSelectionLocked).toBe(true);
   });
+
+  test("initConfig migrates legacy horizontal slide setting to both layout profiles", () => {
+    const saved = {
+      pitchSlideSemitonesPerPad: 2,
+    };
+    globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+
+    const config = initConfig();
+    expect(config.pitchSlideSemitonesPerPadStandard).toBe(2);
+    expect(config.pitchSlideSemitonesPerPadMech).toBe(2);
+  });
 });
