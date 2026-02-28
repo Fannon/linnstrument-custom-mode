@@ -87,6 +87,10 @@ const AUTO_APPLY_RECONNECT_FIELD_IDS = new Set([
   "loopOutputPort",
   "loopInputPort",
 ]);
+const HIDDEN_MIDI_PORT_NAMES = new Set([
+  "midinous clock port",
+  "touchosc bridge",
+]);
 
 export const ext = {
   config: {},
@@ -137,10 +141,11 @@ async function init() {
   ext.config = initConfig();
 
   bindUi();
+  bindMidiHotplugListeners();
   populatePresetSelect();
   populateStateSelectors();
   populateUiFromConfig();
-  refreshPortSelectors({ autoSelectInstrument: true });
+  refreshPortSelectors({ autoSelectInstrument: shouldAutoSelectPorts() });
 
   await connectMidiFromConfig();
   await ensureLinnStrumentStandardLayout("startup");
@@ -151,10 +156,42 @@ async function init() {
   log.info("Using LinnStrument standard input decoding.");
 }
 
-function bindUi() {
-  document.getElementById("refreshPorts")?.addEventListener("click", () => {
-    refreshPortSelectors({ autoSelectInstrument: true });
+function bindMidiHotplugListeners() {
+  if (typeof WebMidi?.addListener !== "function") {
+    return;
+  }
+
+  WebMidi.addListener("connected", () => {
+    refreshPortSelectors({ autoSelectInstrument: shouldAutoSelectPorts() });
     updateRoutingStatus();
+  });
+
+  WebMidi.addListener("disconnected", () => {
+    refreshPortSelectors({ autoSelectInstrument: shouldAutoSelectPorts() });
+    updateRoutingStatus();
+  });
+}
+
+async function rescanMidiPortsAndReconnect() {
+  try {
+    if (typeof WebMidi?.disable === "function") {
+      WebMidi.disable();
+    }
+    if (typeof WebMidi?.enable === "function") {
+      await WebMidi.enable();
+    }
+  } catch (err) {
+    log.warn(`MIDI rescan fallback: ${err?.message || err}`);
+  }
+
+  refreshPortSelectors({ autoSelectInstrument: shouldAutoSelectPorts() });
+  await connectMidiFromConfig();
+  updateRoutingStatus();
+}
+
+function bindUi() {
+  document.getElementById("refreshPorts")?.addEventListener("click", async () => {
+    await rescanMidiPortsAndReconnect();
   });
 
   bindAutoApplyConfigFields();
@@ -249,6 +286,15 @@ function queueAutoApplyConfigFromUi(triggerId = "ui-change") {
 
 async function applyConfigChangeFromUi(triggerId = "ui-change") {
   readConfigFromUi();
+
+  if (AUTO_APPLY_RECONNECT_FIELD_IDS.has(triggerId)) {
+    const wasLocked = Boolean(ext.config.portSelectionLocked);
+    ext.config.portSelectionLocked = true;
+    if (!wasLocked) {
+      log.info("Locked MIDI port auto-detection until Reset Defaults.");
+    }
+  }
+
   persistConfig(ext.config);
 
   if (AUTO_APPLY_RECONNECT_FIELD_IDS.has(triggerId)) {
@@ -387,34 +433,36 @@ function readConfigFromUi() {
 }
 
 function refreshPortSelectors({ autoSelectInstrument = false } = {}) {
+  const inputNames = listVisiblePortNames(WebMidi.inputs);
+  const outputNames = listVisiblePortNames(WebMidi.outputs);
   const current = {
-    instrumentInputPort: getValue("instrumentInputPort") || ext.config.instrumentInputPort || "",
-    instrumentOutputPort: getValue("instrumentOutputPort") || ext.config.instrumentOutputPort || "",
-    loopOutputPort: getValue("loopOutputPort") || ext.config.loopOutputPort || "",
-    loopInputPort: getValue("loopInputPort") || ext.config.loopInputPort || "",
+    instrumentInputPort: sanitizeSelectedPortName(getValue("instrumentInputPort") || ext.config.instrumentInputPort || ""),
+    instrumentOutputPort: sanitizeSelectedPortName(getValue("instrumentOutputPort") || ext.config.instrumentOutputPort || ""),
+    loopOutputPort: sanitizeSelectedPortName(getValue("loopOutputPort") || ext.config.loopOutputPort || ""),
+    loopInputPort: sanitizeSelectedPortName(getValue("loopInputPort") || ext.config.loopInputPort || ""),
   };
 
   fillSelect(
     document.getElementById("instrumentInputPort"),
-    WebMidi.inputs.map((port) => port.name),
+    inputNames,
     current.instrumentInputPort,
   );
   fillSelect(
     document.getElementById("instrumentOutputPort"),
-    WebMidi.outputs.map((port) => port.name),
+    outputNames,
     current.instrumentOutputPort,
   );
   fillSelect(
     document.getElementById("loopOutputPort"),
-    WebMidi.outputs.map((port) => port.name),
+    outputNames,
     current.loopOutputPort,
-    { includeEmpty: true, emptyLabel: "Select MIDI loop output..." },
+    { includeEmpty: true, emptyLabel: "(none)" },
   );
   fillSelect(
     document.getElementById("loopInputPort"),
-    WebMidi.inputs.map((port) => port.name),
+    inputNames,
     current.loopInputPort,
-    { includeEmpty: true, emptyLabel: "Select backchannel input..." },
+    { includeEmpty: true, emptyLabel: "(none)" },
   );
 
   if (autoSelectInstrument) {
@@ -427,12 +475,20 @@ function refreshPortSelectors({ autoSelectInstrument = false } = {}) {
   ext.config.loopInputPort = getValue("loopInputPort") || "";
 }
 
+function shouldAutoSelectPorts() {
+  return !Boolean(ext.config.portSelectionLocked);
+}
+
 function fillSelect(selectEl, names, selected, options = {}) {
   if (!selectEl) {
     return;
   }
 
   const { includeEmpty = true, emptyLabel = "(none)" } = options;
+  const normalizedSelected = typeof selected === "string" ? selected : "";
+  const uniqueNames = Array.from(new Set((Array.isArray(names) ? names : [])
+    .map((name) => String(name || "").trim())
+    .filter((name) => name.length > 0)));
   selectEl.innerHTML = "";
 
   if (includeEmpty) {
@@ -442,25 +498,37 @@ function fillSelect(selectEl, names, selected, options = {}) {
     selectEl.appendChild(empty);
   }
 
-  names.forEach((name) => {
+  let hasSelected = false;
+  uniqueNames.forEach((name) => {
     const option = document.createElement("option");
     option.value = name;
     option.textContent = name;
-    if (selected === name) {
+    if (normalizedSelected === name) {
       option.selected = true;
+      hasSelected = true;
     }
     selectEl.appendChild(option);
   });
+
+  if (normalizedSelected && !hasSelected) {
+    const unavailable = document.createElement("option");
+    unavailable.value = normalizedSelected;
+    unavailable.textContent = `${normalizedSelected} (unavailable)`;
+    unavailable.selected = true;
+    unavailable.dataset.unavailable = "true";
+    selectEl.appendChild(unavailable);
+  }
 }
 
 function autoSelectLinnStrumentPorts() {
   const inputSelect = document.getElementById("instrumentInputPort");
   const outputSelect = document.getElementById("instrumentOutputPort");
   const loopSelect = document.getElementById("loopOutputPort");
-  const loopInputSelect = document.getElementById("loopInputPort");
 
-  const detectedInput = WebMidi.inputs.find((port) => /linnstrument/i.test(port.name));
-  const detectedOutput = WebMidi.outputs.find((port) => /linnstrument/i.test(port.name));
+  const visibleInputs = (WebMidi.inputs || []).filter((port) => !isHiddenMidiPortName(port?.name));
+  const visibleOutputs = (WebMidi.outputs || []).filter((port) => !isHiddenMidiPortName(port?.name));
+  const detectedInput = visibleInputs.find((port) => /linnstrument/i.test(port.name));
+  const detectedOutput = visibleOutputs.find((port) => /linnstrument/i.test(port.name));
 
   if (inputSelect && !inputSelect.value && detectedInput) {
     inputSelect.value = detectedInput.name;
@@ -474,25 +542,34 @@ function autoSelectLinnStrumentPorts() {
 
   if (loopSelect && !loopSelect.value) {
     const preferredLoop =
-      WebMidi.outputs.find((port) => /^loopMIDI Port$/i.test(port.name)) ||
-      WebMidi.outputs.find((port) => /loopmidi/i.test(port.name));
-    const firstLoop = preferredLoop || WebMidi.outputs.find((port) => !/linnstrument/i.test(port.name));
+      visibleOutputs.find((port) => /^LinnStrument Custom$/i.test(port.name)) ||
+      visibleOutputs.find((port) => /^loopMIDI Port$/i.test(port.name)) ||
+      visibleOutputs.find((port) => /loopmidi/i.test(port.name));
+    const firstLoop = preferredLoop || visibleOutputs.find((port) => !/linnstrument/i.test(port.name));
     if (firstLoop) {
       loopSelect.value = firstLoop.name;
       log.info(`Preselected loop output candidate: ${firstLoop.name}`);
     }
   }
 
-  if (loopInputSelect && !loopInputSelect.value) {
-    const preferredLoopInput =
-      WebMidi.inputs.find((port) => /^loopMIDI Port$/i.test(port.name))
-      || WebMidi.inputs.find((port) => /bitwig|loopmidi|loopback/i.test(port.name));
-    const firstLoopInput = preferredLoopInput || WebMidi.inputs.find((port) => !/linnstrument/i.test(port.name));
-    if (firstLoopInput) {
-      loopInputSelect.value = firstLoopInput.name;
-      log.info(`Preselected backchannel input candidate: ${firstLoopInput.name}`);
-    }
-  }
+  // Backchannel input has no default-name auto-selection.
+  // Keep it at (none) unless user explicitly picks one (or has one saved).
+}
+
+function listVisiblePortNames(ports) {
+  return (Array.isArray(ports) ? ports : [])
+    .map((port) => String(port?.name || "").trim())
+    .filter((name) => name && !isHiddenMidiPortName(name))
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base", numeric: true }));
+}
+
+function isHiddenMidiPortName(name) {
+  const normalized = String(name || "").trim().toLowerCase();
+  return normalized ? HIDDEN_MIDI_PORT_NAMES.has(normalized) : false;
+}
+
+function sanitizeSelectedPortName(name) {
+  return isHiddenMidiPortName(name) ? "" : String(name || "").trim();
 }
 
 async function connectMidiFromConfig() {

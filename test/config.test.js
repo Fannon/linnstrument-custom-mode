@@ -69,4 +69,22 @@ describe("config", () => {
     clearPersistedConfig();
     expect(globalThis.localStorage.getItem(STORAGE_KEY)).toBeNull();
   });
+
+  test("initConfig restores saved port selections and lock flag", () => {
+    const saved = {
+      instrumentInputPort: "My Instrument In",
+      instrumentOutputPort: "My Instrument Out",
+      loopOutputPort: "My Loop Out",
+      loopInputPort: "My Loop In",
+      portSelectionLocked: true,
+    };
+    globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+
+    const config = initConfig();
+    expect(config.instrumentInputPort).toBe(saved.instrumentInputPort);
+    expect(config.instrumentOutputPort).toBe(saved.instrumentOutputPort);
+    expect(config.loopOutputPort).toBe(saved.loopOutputPort);
+    expect(config.loopInputPort).toBe(saved.loopInputPort);
+    expect(config.portSelectionLocked).toBe(true);
+  });
 });

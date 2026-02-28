@@ -48,8 +48,8 @@
         </div>
         <div class="button-row">
           <button id="refreshPorts" type="button" class="btn btn-outline-secondary btn-sm">Refresh Ports</button>
+          <button id="restoreLinnstrument" type="button" class="btn btn-outline-secondary btn-sm" title="Reapplies LinnStrument standard no-overlap input mode and current MPE setting.">Restore</button>
           <button id="resetConfig" type="button" class="btn btn-outline-danger btn-sm" title="Resets app settings to defaults.">Reset Defaults</button>
-          <button id="restoreLinnstrument" type="button" class="btn btn-outline-secondary btn-sm" title="Reapplies LinnStrument standard no-overlap input mode and current MPE setting.">Restore LinnStrument</button>
         </div>
         <div class="connection-routing" aria-live="polite">
           <span class="connection-routing-label">Routing</span>
@@ -60,19 +60,6 @@
         <div class="field-grid">
           <label for="presetSelect">Preset Layout</label>
           <select id="presetSelect" class="form-select"></select>
-
-          <label for="layoutRowOffsetScale">Scale Mode - Row Offset</label>
-          <input id="layoutRowOffsetScale" class="form-control" type="number" min="1" max="12" step="1">
-
-          <label for="layoutRowOffsetAllNotes">All Notes Mode - Row Offset</label>
-          <input id="layoutRowOffsetAllNotes" class="form-control" type="number" min="1" max="12" step="1">
-
-          <label for="pitchSlideSemitonesPerPad">Horizontal Slide Pitch Bend</label>
-          <select id="pitchSlideSemitonesPerPad" class="form-select">
-            <option value="0.5">1 pad = 0.5 semitones</option>
-            <option value="1">1 pad = 1 semitone</option>
-            <option value="2">1 pad = 2 semitones</option>
-          </select>
         </div>
         <div hidden>
           <h2>Device Mapping</h2>
@@ -151,6 +138,25 @@
                 <option value="24">±24 semitones</option>
                 <option value="48">±48 semitones</option>
               </select>
+            </div>
+
+            <div class="advanced-option">
+              <label for="pitchSlideSemitonesPerPad">Horizontal Slide Pitch Bend</label>
+              <select id="pitchSlideSemitonesPerPad" class="form-select">
+                <option value="0.5">1 pad = 0.5 semitones</option>
+                <option value="1">1 pad = 1 semitone</option>
+                <option value="2">1 pad = 2 semitones</option>
+              </select>
+            </div>
+
+            <div class="advanced-option">
+              <label for="layoutRowOffsetScale">Scale Mode - Row Offset</label>
+              <input id="layoutRowOffsetScale" class="form-control" type="number" min="1" max="12" step="1">
+            </div>
+
+            <div class="advanced-option">
+              <label for="layoutRowOffsetAllNotes">All Notes Mode - Row Offset</label>
+              <input id="layoutRowOffsetAllNotes" class="form-control" type="number" min="1" max="12" step="1">
             </div>
 
             <div class="advanced-option">
