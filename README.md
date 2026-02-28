@@ -2,18 +2,15 @@
 
 Browser-based LinnStrument custom-mode prototype, inspired by the workflow of Novation Components.
 
-The current prototype focuses on a single preset layout that turns the LinnStrument into a scale-constrained playing surface with on-device mode/key selection.
+The current prototype focuses on preset layouts that turn the LinnStrument into a scale-constrained playing surface with on-device mode/key selection.
 
 ## Current Features
 
 - Web app (static files, runs in a Web MIDI capable browser)
 - Auto-detect LinnStrument MIDI input/output ports
 - User-select one MIDI loop output port (prefers `loopMIDI Port` if available)
-- Preconfigured `Scale Mode` layout:
-  - Bottom row: modwheel (`CC1`) via pressure
-  - Key selection row (`C`-`B`)
-  - Mode selection row (major, minor, pentatonics, etc.)
-  - Remaining rows play notes constrained to the selected scale
+- Preconfigured layouts: `Scale Mode` and `Midimech` (whole-tone column geometry)
+- Shared behavior for both presets: bottom-left pad is control overlay, bottom-row pads 1-13 send modwheel (`CC1`) via pressure, bottom-row last two pads are Oct-/Oct+, plus key row (`C`-`B`), mode row (major/minor/pentatonics/etc.), and scale-constrained playable rows.
 - Configurable note layout row offset (default `4`)
 - Configurable horizontal slide pitch-bend scaling:
   - `1 pad = 0.5 semitones`

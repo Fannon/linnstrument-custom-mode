@@ -14,6 +14,14 @@ export const PRESETS = [
     name: "Scale Mode (Mod row + Overlay key/mode controls)",
     description: "Bottom row sends modwheel from pressure (except control-overlay trigger). Hold/tap the trigger to access key/mode controls; other rows output scale notes.",
     playableRowsStart: 3,
+    columnStep: 1,
+  },
+  {
+    id: "midimech-v1",
+    name: "Midimech (Whole-tone columns + Overlay controls)",
+    description: "Bottom row sends modwheel from pressure (except control-overlay trigger). Playable rows use Midimech-style geometry: +2 semitones per column and configurable row offset.",
+    playableRowsStart: 3,
+    columnStep: 2,
   },
 ];
 
@@ -33,6 +41,7 @@ export function buildLayoutDefinition(config, defaults = {}, uiState = {}) {
   const controlOverlayActive = Boolean(uiState?.controlOverlayActive);
   const playableRowsStart = controlOverlayActive ? preset.playableRowsStart : 1;
   const noteMappingOriginRow = 1;
+  const columnStep = clampInt(preset.columnStep, 1, 12, 1);
 
   for (let x = 0; x < columns; x++) {
     for (let y = 0; y < 8; y++) {
@@ -48,28 +57,7 @@ export function buildLayoutDefinition(config, defaults = {}, uiState = {}) {
         meta.selected = controlOverlayActive;
         pad = { role: "control-overlay-trigger" };
       } else if (y === 0) {
-        meta.zone = "mod";
-        meta.label = "MW";
-        meta.subLabel = "CC1";
-        meta.disabled = false;
-        pad = { role: "mod" };
-      } else if (controlOverlayActive && y === 1) {
-        if (x < 12) {
-          meta.zone = "key";
-          meta.label = NOTE_NAMES[x];
-          meta.subLabel = "key";
-          meta.disabled = false;
-          meta.accidental = isAccidentalPc(x);
-          meta.selected = mod12(config?.selectedKey ?? 0) === x;
-          pad = { role: "key-select", keyPc: x };
-        } else if (x === 13) {
-          meta.zone = "mpe";
-          meta.label = "MPE";
-          meta.subLabel = "route";
-          meta.disabled = false;
-          meta.selected = Boolean(config?.mpeEnabled ?? defaults?.mpeEnabled ?? true);
-          pad = { role: "toggle-mpe" };
-        } else if (x === columns - 2) {
+        if (x === columns - 2) {
           meta.zone = "octave";
           meta.label = "Oct-";
           meta.subLabel = "out";
@@ -81,6 +69,36 @@ export function buildLayoutDefinition(config, defaults = {}, uiState = {}) {
           meta.subLabel = "out";
           meta.disabled = false;
           pad = { role: "octave-up" };
+        } else {
+          meta.zone = "mod";
+          meta.label = "MW";
+          meta.subLabel = "CC1";
+          meta.disabled = false;
+          pad = { role: "mod" };
+        }
+      } else if (controlOverlayActive && y === 1) {
+        if (x < 12) {
+          meta.zone = "key";
+          meta.label = NOTE_NAMES[x];
+          meta.subLabel = "key";
+          meta.disabled = false;
+          meta.accidental = isAccidentalPc(x);
+          meta.selected = mod12(config?.selectedKey ?? 0) === x;
+          pad = { role: "key-select", keyPc: x };
+        } else if (x === columns - 2) {
+          const currentPresetName = config?.presetId === "midimech-v1" ? "Mech" : "Scale";
+          meta.zone = "preset-switch";
+          meta.label = "Layout";
+          meta.subLabel = currentPresetName;
+          meta.disabled = false;
+          pad = { role: "toggle-preset-layout" };
+        } else if (x === columns - 1) {
+          meta.zone = "mpe";
+          meta.label = "MPE";
+          meta.subLabel = "mode";
+          meta.disabled = false;
+          meta.selected = Boolean(config?.mpeEnabled ?? defaults?.mpeEnabled ?? true);
+          pad = { role: "toggle-mpe" };
         }
       } else if (controlOverlayActive && y === 2) {
         const modeColumnLimit = Math.max(0, columns - 2);
@@ -103,7 +121,7 @@ export function buildLayoutDefinition(config, defaults = {}, uiState = {}) {
       } else if (y >= playableRowsStart) {
         // Keep note positions stable when the overlay is shown; controls visually
         // replace rows, but the remaining playable rows keep their normal mapping.
-        const degreeIndex = x + (y - noteMappingOriginRow) * activeRowOffset;
+        const degreeIndex = x * columnStep + (y - noteMappingOriginRow) * activeRowOffset;
         const mappedNote = config?.allNotesEnabled
           ? clampInt(rootMidi + degreeIndex, 0, 127, rootMidi)
           : scaleNoteAt(rootMidi, mode, degreeIndex);

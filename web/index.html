@@ -45,8 +45,12 @@
         </div>
         <div class="button-row">
           <button id="refreshPorts" type="button" class="btn btn-outline-secondary btn-sm">Refresh Ports</button>
-          <button id="saveConfig" type="button" class="btn btn-primary btn-sm">Save & Apply</button>
-          <button id="resetConfig" type="button" class="btn btn-outline-danger btn-sm">Reset</button>
+          <button id="resetConfig" type="button" class="btn btn-outline-danger btn-sm" title="Resets app settings to defaults.">Reset Defaults</button>
+          <button id="restoreLinnstrument" type="button" class="btn btn-outline-secondary btn-sm" title="Reapplies LinnStrument standard no-overlap input mode and current MPE setting.">Restore LinnStrument</button>
+        </div>
+        <div class="connection-routing" aria-live="polite">
+          <span class="connection-routing-label">Routing</span>
+          <strong id="routingStatus" class="routing-not-ready">Not connected</strong>
         </div>
 
         <h2>Preset</h2>
@@ -105,19 +109,19 @@
             </div>
           </div>
           <div class="state-chip">
-            <span class="state-chip-label">Routing</span>
-            <strong id="routingStatus">Not connected</strong>
+            <span class="state-chip-label">Octave</span>
+            <strong id="octaveStatus">C2</strong>
           </div>
           <div class="state-chip">
             <span class="state-chip-label">Chord</span>
-            <strong id="chordStatus">-</strong>
+            <strong id="chordStatus" class="state-chip-value-chord">-</strong>
           </div>
         </div>
 
         <div class="surface-footer">
           <div class="surface-header surface-meta">
             <div>
-              <p class="muted">Bottom-left pad = control overlay (tap to toggle, hold for momentary). Remaining bottom row = Modwheel. Note grid starts on the row above unless the overlay is active.</p>
+              <p class="muted">Bottom-left pad = control overlay (tap to toggle, hold for momentary). Bottom row pads 1-13 = Modwheel, last two pads = Oct-/Oct+. Note grid starts on the row above unless the overlay is active.</p>
             </div>
             <div class="legend">
               <span class="legend-item legend-mod">Mod</span>

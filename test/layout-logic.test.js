@@ -3,11 +3,18 @@ import { defaultConfig } from "../web/src/config.js";
 import { MODES } from "../web/src/core-logic.js";
 import { buildLayoutDefinition, PRESETS } from "../web/src/layout-logic.js";
 
+const SCALE_MODE_PRESET = PRESETS.find((preset) => preset.id === "scale-mode-basic-v1");
+const MIDIMECH_PRESET = PRESETS.find((preset) => preset.id === "midimech-v1");
+
+if (!SCALE_MODE_PRESET || !MIDIMECH_PRESET) {
+  throw new Error("Expected scale-mode-basic-v1 and midimech-v1 presets to be defined.");
+}
+
 function baseConfig(overrides = {}) {
   return {
     ...defaultConfig,
     linnStrumentSize: 128,
-    presetId: PRESETS[0].id,
+    presetId: SCALE_MODE_PRESET.id,
     selectedModeId: "major",
     selectedKey: 0,
     baseRootC: 36,
@@ -21,7 +28,7 @@ function buildWithOverlay(configOverrides = {}, uiState = {}) {
 }
 
 describe("layout-logic buildLayoutDefinition", () => {
-  test("creates overlay trigger and mod row on y=0 pads", () => {
+  test("creates overlay trigger, mod row, and octave controls on y=0 pads", () => {
     const { cellMeta, padMap } = buildWithOverlay({}, { controlOverlayActive: false });
 
     expect(cellMeta["0-0"].zone).toBe("overlay-trigger");
@@ -29,7 +36,7 @@ describe("layout-logic buildLayoutDefinition", () => {
     expect(cellMeta["0-0"].disabled).toBe(false);
     expect(padMap["0-0"].role).toBe("control-overlay-trigger");
 
-    for (let x = 1; x < 16; x++) {
+    for (let x = 1; x < 14; x++) {
       expect(cellMeta[`${x}-0`].zone).toBe("mod");
       expect(cellMeta[`${x}-0`].label).toBe("MW");
       expect(cellMeta[`${x}-0`].disabled).toBe(false);
@@ -37,9 +44,15 @@ describe("layout-logic buildLayoutDefinition", () => {
     }
     expect(cellMeta["1-0"].subLabel).toBe("CC1");
     expect(cellMeta["2-0"].subLabel).toBe("CC1");
+    expect(cellMeta["14-0"].zone).toBe("octave");
+    expect(cellMeta["14-0"].label).toBe("Oct-");
+    expect(padMap["14-0"].role).toBe("octave-down");
+    expect(cellMeta["15-0"].zone).toBe("octave");
+    expect(cellMeta["15-0"].label).toBe("Oct+");
+    expect(padMap["15-0"].role).toBe("octave-up");
   });
 
-  test("creates tonic row with MPE and octave controls when control overlay is active", () => {
+  test("creates tonic row with layout switch and MPE mode controls when control overlay is active", () => {
     const { cellMeta, padMap } = buildWithOverlay({ selectedKey: 1 }, { controlOverlayActive: true });
 
     expect(cellMeta["0-1"].zone).toBe("key");
@@ -53,18 +66,17 @@ describe("layout-logic buildLayoutDefinition", () => {
 
     expect(cellMeta["12-1"].disabled).toBe(true);
     expect(padMap["12-1"].role).toBe("disabled");
-    expect(cellMeta["13-1"].disabled).toBe(false);
-    expect(cellMeta["13-1"].zone).toBe("mpe");
-    expect(cellMeta["13-1"].label).toBe("MPE");
-    expect(padMap["13-1"].role).toBe("toggle-mpe");
-
-    expect(cellMeta["14-1"].zone).toBe("octave");
-    expect(cellMeta["14-1"].label).toBe("Oct-");
-    expect(padMap["14-1"].role).toBe("octave-down");
-
-    expect(cellMeta["15-1"].zone).toBe("octave");
-    expect(cellMeta["15-1"].label).toBe("Oct+");
-    expect(padMap["15-1"].role).toBe("octave-up");
+    expect(cellMeta["13-1"].disabled).toBe(true);
+    expect(padMap["13-1"].role).toBe("disabled");
+    expect(cellMeta["14-1"].disabled).toBe(false);
+    expect(cellMeta["14-1"].zone).toBe("preset-switch");
+    expect(cellMeta["14-1"].label).toBe("Layout");
+    expect(padMap["14-1"].role).toBe("toggle-preset-layout");
+    expect(cellMeta["15-1"].disabled).toBe(false);
+    expect(cellMeta["15-1"].zone).toBe("mpe");
+    expect(cellMeta["15-1"].label).toBe("MPE");
+    expect(cellMeta["15-1"].subLabel).toBe("mode");
+    expect(padMap["15-1"].role).toBe("toggle-mpe");
   });
 
   test("creates mode row with gap and All-notes toggle on last pad when control overlay is active", () => {
@@ -170,9 +182,60 @@ describe("layout-logic buildLayoutDefinition", () => {
       { mpeEnabled: false },
       { controlOverlayActive: true },
     );
-    expect(cellMeta["13-1"].zone).toBe("mpe");
-    expect(cellMeta["13-1"].label).toBe("MPE");
-    expect(cellMeta["13-1"].selected).toBe(false);
-    expect(padMap["13-1"].role).toBe("toggle-mpe");
+    expect(cellMeta["15-1"].zone).toBe("mpe");
+    expect(cellMeta["15-1"].label).toBe("MPE");
+    expect(cellMeta["15-1"].selected).toBe(false);
+    expect(padMap["15-1"].role).toBe("toggle-mpe");
+  });
+
+  test("layout switch control reflects current preset label", () => {
+    const scale = buildWithOverlay(
+      { presetId: SCALE_MODE_PRESET.id },
+      { controlOverlayActive: true },
+    );
+    const mech = buildWithOverlay(
+      { presetId: MIDIMECH_PRESET.id },
+      { controlOverlayActive: true },
+    );
+
+    expect(scale.cellMeta["14-1"].zone).toBe("preset-switch");
+    expect(scale.cellMeta["14-1"].subLabel).toBe("Scale");
+    expect(mech.cellMeta["14-1"].zone).toBe("preset-switch");
+    expect(mech.cellMeta["14-1"].subLabel).toBe("Mech");
+  });
+
+  test("midimech preset keeps overlay trigger + modwheel row behavior", () => {
+    const { cellMeta, padMap } = buildWithOverlay(
+      { presetId: MIDIMECH_PRESET.id },
+      { controlOverlayActive: false },
+    );
+
+    expect(cellMeta["0-0"].zone).toBe("overlay-trigger");
+    expect(padMap["0-0"].role).toBe("control-overlay-trigger");
+    expect(cellMeta["1-0"].zone).toBe("mod");
+    expect(cellMeta["1-0"].subLabel).toBe("CC1");
+    expect(padMap["1-0"].role).toBe("mod");
+    expect(cellMeta["14-0"].zone).toBe("octave");
+    expect(padMap["14-0"].role).toBe("octave-down");
+    expect(cellMeta["15-0"].zone).toBe("octave");
+    expect(padMap["15-0"].role).toBe("octave-up");
+  });
+
+  test("midimech preset uses 2-semitone horizontal and 5-semitone vertical steps in all-notes mode", () => {
+    const { padMap } = buildWithOverlay(
+      {
+        presetId: MIDIMECH_PRESET.id,
+        allNotesEnabled: true,
+        selectedKey: 0,
+        baseRootC: 36,
+        layoutRowOffsetAllNotes: 5,
+      },
+      { controlOverlayActive: false },
+    );
+
+    expect(padMap["0-1"].outNote).toBe(36); // root
+    expect(padMap["1-1"].outNote).toBe(38); // +2 semitones per column
+    expect(padMap["2-1"].outNote).toBe(40); // +4 semitones
+    expect(padMap["0-2"].outNote).toBe(41); // +5 semitones per row
   });
 });

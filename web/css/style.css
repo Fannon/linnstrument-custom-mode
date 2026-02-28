@@ -134,6 +134,34 @@ body {
   flex-wrap: wrap;
 }
 
+.connection-routing {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.connection-routing-label {
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+#routingStatus.routing-ready {
+  color: #1f7a1f;
+}
+
+#routingStatus.routing-not-ready {
+  color: #8a3e2a;
+}
+
 .muted {
   margin: 0;
   color: var(--muted);
@@ -260,6 +288,13 @@ body {
   white-space: nowrap;
 }
 
+.state-chip-value-chord {
+  display: inline-block;
+  width: 11ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .state-chip-edit {
   padding-right: 6px;
 }
@@ -340,6 +375,7 @@ body {
 .cell.zone-overlay-trigger { background: var(--zone-overlay-trigger); }
 .cell.zone-key { background: var(--zone-key); }
 .cell.zone-key.cell-accidental { background: var(--zone-key-accidental); }
+.cell.zone-preset-switch { background: var(--zone-mode); }
 .cell.zone-octave { background: var(--zone-octave); }
 .cell.zone-mode { background: var(--zone-mode); }
 .cell.zone-all-notes-toggle { background: var(--zone-all-notes); }

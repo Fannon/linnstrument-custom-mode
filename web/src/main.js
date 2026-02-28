@@ -42,6 +42,7 @@ const INSTRUMENT_COLORS = {
   overlayTrigger: 6,
   keyNatural: 4,
   keyAccidental: 5,
+  presetSwitch: 3,
   mode: 3,
   allNotesOff: 9,
   allNotesOn: 10,
@@ -70,6 +71,24 @@ const NRPN_DEVICE_USER_FIRMWARE_MODE = 245;
 const STANDARD_DEVICE_START_NOTE = 0;
 const STANDARD_SPLIT_LEFT_OCTAVE_VALUE = 3;
 const STANDARD_SPLIT_LEFT_TRANSPOSE_PITCH_VALUE = 1;
+const AUTO_APPLY_FIELD_IDS = [
+  "instrumentInputPort",
+  "instrumentOutputPort",
+  "loopOutputPort",
+  "presetSelect",
+  "layoutRowOffsetScale",
+  "layoutRowOffsetAllNotes",
+  "pitchSlideSemitonesPerPad",
+  "outputPitchBendRangeSemitones",
+  "scaleModeHighlightNonRootWhite",
+  "deviceStartNote",
+  "deviceRowOffset",
+];
+const AUTO_APPLY_RECONNECT_FIELD_IDS = new Set([
+  "instrumentInputPort",
+  "instrumentOutputPort",
+  "loopOutputPort",
+]);
 
 export const ext = {
   config: {},
@@ -136,14 +155,7 @@ function bindUi() {
     updateRoutingStatus();
   });
 
-  document.getElementById("saveConfig")?.addEventListener("click", async (event) => {
-    event.preventDefault();
-    readConfigFromUi();
-    persistConfig(ext.config);
-    await connectMidiFromConfig();
-    rebuildLayout();
-    log.success("Configuration applied.");
-  });
+  bindAutoApplyConfigFields();
 
   document.getElementById("resetConfig")?.addEventListener("click", async (event) => {
     event.preventDefault();
@@ -152,10 +164,16 @@ function bindUi() {
     populateUiFromConfig();
     refreshPortSelectors({ autoSelectInstrument: true });
     await connectMidiFromConfig();
-    await ensureLinnStrumentStandardLayout("reset");
-    await configureLinnStrumentMpeInputMode(isMpeModeEnabled(), "reset");
     rebuildLayout({ paintInstrument: true });
     log.warn("Configuration reset to defaults.");
+  });
+
+  document.getElementById("restoreLinnstrument")?.addEventListener("click", async (event) => {
+    event.preventDefault();
+    await ensureLinnStrumentStandardLayout("manual-restore");
+    await configureLinnStrumentMpeInputMode(isMpeModeEnabled(), "manual-restore");
+    rebuildLayout({ paintInstrument: true });
+    log.info("Reapplied LinnStrument standard input mode.");
   });
 
   document.getElementById("resendPbRange")?.addEventListener("click", async () => {
@@ -200,6 +218,44 @@ function bindUi() {
   }, 120));
 
   bindSurfacePointerInput();
+}
+
+let autoApplyChain = Promise.resolve();
+
+function bindAutoApplyConfigFields() {
+  AUTO_APPLY_FIELD_IDS.forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) {
+      return;
+    }
+    el.addEventListener("change", () => {
+      queueAutoApplyConfigFromUi(id);
+    });
+  });
+}
+
+function queueAutoApplyConfigFromUi(triggerId = "ui-change") {
+  autoApplyChain = autoApplyChain
+    .then(() => applyConfigChangeFromUi(triggerId))
+    .catch((err) => {
+      console.warn("Auto-apply config update failed", err);
+      log.error(`Could not auto-apply ${triggerId}: ${err?.message || err}`);
+    });
+}
+
+async function applyConfigChangeFromUi(triggerId = "ui-change") {
+  readConfigFromUi();
+  persistConfig(ext.config);
+
+  if (AUTO_APPLY_RECONNECT_FIELD_IDS.has(triggerId)) {
+    await connectMidiFromConfig();
+  }
+
+  if (triggerId === "outputPitchBendRangeSemitones") {
+    await resendPitchBendRangeFromConfig();
+  }
+
+  rebuildLayout();
 }
 
 function populatePresetSelect() {
@@ -735,6 +791,31 @@ function toggleAllNotesMode(options = {}) {
   return setAllNotesMode(!ext.config.allNotesEnabled, options);
 }
 
+function togglePresetLayout(options = {}) {
+  const {
+    trigger = "preset",
+    flashCoord = null,
+  } = options;
+
+  const currentIndex = PRESETS.findIndex((preset) => preset.id === ext.config.presetId);
+  const normalizedIndex = currentIndex >= 0 ? currentIndex : 0;
+  const nextPreset = PRESETS[(normalizedIndex + 1) % PRESETS.length] || PRESETS[0];
+  if (!nextPreset || nextPreset.id === ext.config.presetId) {
+    return false;
+  }
+
+  ext.config.presetId = nextPreset.id;
+  persistConfig(ext.config);
+  setValue("presetSelect", ext.config.presetId);
+  rebuildLayout();
+  if (flashCoord) {
+    flashSelection(flashCoord);
+  }
+  log.info(`Layout preset switched to ${nextPreset.name}.`);
+  logActiveState(trigger);
+  return true;
+}
+
 function setMpeModeEnabled(enabled, options = {}) {
   const {
     trigger = "mpe",
@@ -795,6 +876,10 @@ function handleNoteOn(msg) {
     }
     case "toggle-all-notes": {
       toggleAllNotesMode({ trigger: "all-notes", flashCoord: event.coord });
+      break;
+    }
+    case "toggle-preset-layout": {
+      togglePresetLayout({ trigger: "preset", flashCoord: event.coord });
       break;
     }
     case "toggle-mpe": {
@@ -1451,8 +1536,10 @@ function getGridMappingSignature() {
 
 function updateStatusUi() {
   const mode = MODE_BY_ID[ext.config.selectedModeId] || MODES[0];
+  const outputOctave = Math.floor(ext.config.baseRootC / 12) - 1;
   setValue("stateTonicSelect", mod(ext.config.selectedKey, 12));
   setValue("stateScaleSelect", mode.id);
+  setText("octaveStatus", `C${outputOctave}`);
   const modeScaleBtn = document.getElementById("stateModeScaleBtn");
   const modeAllBtn = document.getElementById("stateModeAllBtn");
   if (modeScaleBtn) {
@@ -1474,12 +1561,19 @@ function updateStatusUi() {
 function updateRoutingStatus() {
   const inOk = Boolean(ext.midi.instrumentInput);
   const outOk = Boolean(ext.midi.loopOutput);
+  const ready = inOk && outOk;
   const status = !inOk
     ? "No LinnStrument input"
     : outOk
       ? "Ready"
       : "No loop output";
-  setText("routingStatus", status);
+  const statusEl = document.getElementById("routingStatus");
+  if (!statusEl) {
+    return;
+  }
+  statusEl.textContent = status;
+  statusEl.classList.toggle("routing-ready", ready);
+  statusEl.classList.toggle("routing-not-ready", !ready);
 }
 
 function refreshDetectedChord() {
@@ -1530,6 +1624,7 @@ function getInstrumentColorForMeta(meta = {}, coord = null) {
         ? INSTRUMENT_COLORS.keyAccidental
         : INSTRUMENT_COLORS.keyNatural;
   }
+  if (meta.zone === "preset-switch") color = INSTRUMENT_COLORS.presetSwitch;
   if (meta.zone === "octave") color = INSTRUMENT_COLORS.octave;
   if (meta.zone === "mode") color = meta.selected ? INSTRUMENT_COLORS.selected : INSTRUMENT_COLORS.mode;
   if (meta.zone === "all-notes-toggle") color = meta.selected ? INSTRUMENT_COLORS.allNotesOn : INSTRUMENT_COLORS.allNotesOff;
