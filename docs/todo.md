@@ -10,10 +10,9 @@
 
 ### Reliability & Dev-Ex Improvements
 
-- [ ] Add Playwright e2e to CI (full run or nightly job) so regressions are caught before merge.
-- [ ] Add a focused test for reset/restore side effects on NRPN calls and local config state.
-- [ ] Break up `web/src/main.js` into smaller modules (`midi-io`, `routing`, `ui-state`, `instrument-sync`) to reduce regression risk.
 - [ ] Add lint/format checks (Biome or ESLint/Prettier) and run them in CI.
+- [ ] Add Playwright e2e to CI (full run or nightly job) so regressions are caught before merge.
+- [ ] Break up `web/src/main.js` into smaller modules (`midi-io`, `routing`, `ui-state`, `instrument-sync`) to reduce regression risk.
 - [ ] Add runtime guardrails for missing MIDI ports and recover cleanly from hot-plug disconnect/reconnect.
 
 ### Midimech Comparison Follow-Ups
