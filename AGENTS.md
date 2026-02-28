@@ -12,7 +12,7 @@ This repo is a browser-based LinnStrument custom-mode prototype (Web MIDI) with 
 
 - Static app served from `web/`.
 - Web MIDI via `webmidi`.
-- Bun-first workflow: `bun install`, `bun run start`, `bun run test`, `bun run build`, `bun run verify`.
+- Bun-first workflow: `bun install`, `bun run lint`, `bun run start`, `bun run test`, `bun run build`, `bun run verify`.
 - Frontend vendor assets are copied into `web/lib/` by `bin/updateLibs.js`.
 - Keep `bun.lock` authoritative unless explicitly told otherwise.
 - Do not add or commit `package-lock.json` unless explicitly requested.
@@ -62,9 +62,10 @@ When routing or protocol behavior is ambiguous, verify against firmware sources 
 ## Verify Loop (Before Handoff)
 
 1. `bun run test`
-2. `bun run build`
-3. `bun run verify`
-4. `bun run test:e2e` when behavior, UI, or routing changes (currently not CI-gated)
+2. `bun run lint`
+3. `bun run build`
+4. `bun run verify`
+5. `bun run test:e2e` when behavior, UI, or routing changes
 
 ## Priority Work
 
