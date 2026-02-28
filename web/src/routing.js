@@ -71,56 +71,78 @@ export function findCoordByRoutedNote(routedNotesByPad, channel, noteNumber) {
 }
 
 export function extractRawTouchEvent(msg) {
-  // WebMidi v3 'noteon', 'noteoff', 'keyaftertouch' messages provide structured data.
-  // We prefer the raw integers to avoid precision loss from normalization.
-  const noteNumber = msg?.note?.number ?? msg?.dataBytes?.[0] ?? (msg?.data?.[1] & 0x7f);
+  // WebMidi v3/v2 both provide the raw bytes in some form (.data, .dataBytes, etc).
+  // Standard MIDI for Note On/Off/PolyAT: [Status, Note, Velocity/Pressure]
+  const data = msg?.message?.data || msg?.data || msg?.dataBytes;
+  
+  let noteNumber = msg?.note?.number; 
+  if (!Number.isFinite(noteNumber) && data) {
+    // If the data array starts with the Status byte (standard), Note is data[1].
+    // We check if data[0] looks like a status byte (>= 0x80).
+    const startOffset = (data[0] >= 0x80) ? 1 : 0;
+    noteNumber = data[startOffset];
+  }
+
   if (!Number.isFinite(noteNumber)) {
     return null;
   }
 
   const channel = getChannel(msg);
 
-  // Status byte is in msg.data[0]. msg.data is the full MIDI message [Status, Data1, Data2].
-  // Data2 (velocity/pressure) is at msg.data[2] for 3-byte messages.
-  let rawValue = 0;
-  if (msg?.data && msg.data.length >= 3) {
-    rawValue = msg.data[2];
-  } else if (msg?.dataBytes && msg.dataBytes.length >= 2) {
-    rawValue = msg.dataBytes[1];
-  } else {
-    // Fallback to WebMidi properties
-    rawValue = msg?.rawVelocity ?? msg?.rawValue ?? msg?.velocity ?? msg?.value ?? 0;
+  // Prefer explicit parsed fields from WebMidi events when available.
+  let velocity = null;
+  if (Number.isFinite(msg?.rawVelocity)) {
+    velocity = msg.rawVelocity;
+  } else if (Number.isFinite(msg?.rawValue)) {
+    velocity = msg.rawValue;
+  } else if (data) {
+    // Velocity/Pressure is at index 2 (if index 0 is Status) or 1 (if no Status).
+    const startOffset = (data[0] >= 0x80) ? 1 : 0;
+    if (data.length > startOffset + 1) {
+      velocity = data[startOffset + 1];
+    }
+  } else if (typeof msg?.velocity === "number" || typeof msg?.value === "number") {
+    velocity = Math.round((msg.velocity ?? msg.value ?? 0) * 127);
   }
 
-  // Handle normalization if the value came from normalized 'velocity' or 'value'
-  const velocity =
-    typeof rawValue === "number" && rawValue >= 0 && rawValue <= 1 && !msg?.rawVelocity && !msg?.rawValue
-      ? clampInt(Math.round(rawValue * 127), 0, 127, 0)
-      : clampInt(rawValue, 0, 127, 0);
+  if (!Number.isFinite(velocity)) {
+    velocity = 0;
+  }
 
-  return {
-    noteNumber,
+  const result = {
+    noteNumber: noteNumber & 0x7f,
     channel,
-    velocity,
+    velocity: clampInt(velocity, 0, 127, 0),
     coord: typeof msg?.coord === "string" ? msg.coord : null,
   };
+  
+  console.debug(`[routing] extractRawTouchEvent type=${msg?.type}`, { 
+    raw: data ? Array.from(data) : null,
+    result 
+  });
+  
+  return result;
 }
 
 export function extractRawControlChangeEvent(msg) {
-  const controller = msg?.controller?.number ?? msg?.dataBytes?.[0];
+  const controller = msg?.controller?.number ?? msg?.dataBytes?.[0] ?? msg?.message?.data?.[1] ?? msg?.data?.[1];
   if (!Number.isFinite(controller)) {
     return null;
   }
 
-  const rawValue = msg?.rawValue ?? msg?.value ?? msg?.dataBytes?.[1];
+  const rawValue =
+    msg?.rawValue ?? msg?.value ?? msg?.message?.data?.[2] ?? msg?.data?.[2] ?? msg?.dataBytes?.[1];
+
   const value7 =
-    typeof rawValue === "number" && rawValue >= 0 && rawValue <= 1
+    typeof rawValue === "number" && rawValue >= 0 && rawValue <= 1 && !msg?.rawValue
       ? clampInt(Math.round(rawValue * 127), 0, 127, 0)
       : clampInt(rawValue, 0, 127, 0);
 
-  return {
+  const result = {
     controller,
     channel: getChannel(msg),
     value7,
   };
+  console.debug("[routing] extractRawControlChangeEvent", result);
+  return result;
 }

@@ -88,6 +88,7 @@ const INSTRUMENT_COLORS = {
 const DEBUG_CONTROL_OVERLAY = false;
 const DEBUG_MIDI_FLOW = false;
 const MIDIMECH_PRESET_ID = "midimech-v1";
+const MOD_WHEEL_SMOOTHING_ALPHA = 0.35;
 const AUTO_APPLY_FIELD_IDS = [
   "instrumentInputPort",
   "instrumentOutputPort",
@@ -138,6 +139,7 @@ export const ext = {
     recentLoopNoteOns: new Map(),
     modPressuresByPad: new Map(),
     modChannelsByPad: new Map(),
+    modWheelSmoothed: null,
     controlOverlay: createControlOverlayState(),
     lastPitchBend14ByChannel: new Map(),
     detectedChordName: "",
@@ -969,7 +971,9 @@ function handleNoteOn(msg) {
 
   switch (pad.role) {
     case "mod": {
-      setModPressure(event.coord, event.velocity, event.channel, event.noteNumber);
+      // Mod pads are now purely pressure-driven. 
+      // We ignore the initial strike velocity and start at 0.
+      setModPressure(event.coord, 0, event.channel, event.noteNumber);
       break;
     }
     case "key-select": {
@@ -1123,30 +1127,42 @@ function handlePolyPressure(msg) {
     return;
   }
   if (pad.role === "mod") {
+    // Mod pads follow finger pressure (velocity property in aftertouch events).
     setModPressure(event.coord, event.velocity, event.channel, event.noteNumber);
     return;
   }
 
   if (pad.role === "play-note") {
     const routed = ext.state.routedNotesByPad.get(event.coord);
-    const outputChannel = routed?.channel ?? 1;
+    const outputChannel = routed?.channel ?? resolveOutputChannel(event.channel, isMpeModeEnabled());
+    const outputNote = routed?.note ?? pad.outNote;
     const value = event.velocity;
 
-    // Standard MPE uses Channel Pressure on the member channel.
-    // In non-MPE mode, we also send Channel Pressure (usually on Ch 1) 
-    // because many synths do not support Poly Aftertouch.
-    sendLoopChannelAftertouch(value, outputChannel);
+    // Keep key pressure as true poly-aftertouch tied to the mapped note.
+    sendLoopPolyAftertouch(outputNote, value, outputChannel);
   }
 }
 
 function handleChannelAftertouch(msg) {
   const channel = getChannel(msg);
 
-  const rawValue = msg?.rawValue ?? msg?.value ?? msg?.data?.[1] ?? msg?.dataBytes?.[0] ?? 0;
-  const value =
-    typeof rawValue === "number" && rawValue >= 0 && rawValue <= 1 && !msg?.rawValue
-      ? clampInt(Math.round(rawValue * 127), 0, 127, 0)
-      : clampInt(rawValue, 0, 127, 0);
+  // WebMidi v3/v2: Channel Aftertouch [Status, Pressure] or just [Pressure]
+  const data = msg?.message?.data || msg?.data || msg?.dataBytes;
+  let value = 0;
+  if (data) {
+    // If data[0] is status (0xD0), value is at index 1.
+    const startOffset = (data[0] >= 0x80) ? 1 : 0;
+    value = data[startOffset] ?? 0;
+  } else if (msg?.rawValue !== undefined) {
+    value = msg.rawValue;
+  } else if (typeof msg?.value === "number") {
+    value = Math.round(msg.value * 127);
+  }
+
+  console.debug(`[main] rx handleChannelAftertouch ch=${channel}`, { 
+    raw: data ? Array.from(data) : null,
+    extractedValue: value 
+  });
 
   const heldModCoordsOnChannel = Array.from(ext.state.modChannelsByPad.entries())
     .filter(([_touchId, ch]) => ch === channel)
@@ -1157,7 +1173,7 @@ function handleChannelAftertouch(msg) {
     heldModCoordsOnChannel.forEach((touchId) => {
       ext.state.modPressuresByPad.set(touchId, pressure);
     });
-    sendLoopModWheel(pressure);
+    sendLoopModWheel(getCurrentModWheelValue());
   }
 
   const heldPlayableEntriesOnChannel = Array.from(ext.state.routedNotesByPad.values()).filter(
@@ -1171,10 +1187,12 @@ function handleChannelAftertouch(msg) {
         channel,
       );
       outputChannels.forEach((outputChannel) => {
+        console.debug(`[main] handleChannelAftertouch (MPE): forwarding to loop ch ${outputChannel}`, { value });
         sendLoopChannelAftertouch(value, outputChannel);
       });
     } else {
       // In non-MPE mode, forward as global channel pressure on Channel 1
+      console.debug("[main] handleChannelAftertouch (non-MPE): forwarding to loop ch 1", { value });
       sendLoopChannelAftertouch(value, 1);
     }
   }
@@ -1186,28 +1204,48 @@ function handleControlChange(msg) {
     return;
   }
 
-  if (event.controller === 1) {
-    sendLoopModWheel(event.value7);
+  // CC11/CC1 coming from the instrument can represent pressure on active touches.
+  // If a mod-row touch is held on this input channel, treat this as mod pressure.
+  if (event.controller === 11 || event.controller === 1) {
+    const heldModTouchIdsOnChannel = Array.from(ext.state.modChannelsByPad.entries())
+      .filter(([_touchId, ch]) => ch === event.channel)
+      .map(([touchId]) => touchId);
+    if (heldModTouchIdsOnChannel.length > 0) {
+      const pressure = clampInt(event.value7, 0, 127, 0);
+      heldModTouchIdsOnChannel.forEach((touchId) => {
+        ext.state.modPressuresByPad.set(touchId, pressure);
+      });
+      sendLoopModWheel(getCurrentModWheelValue());
+    }
     return;
   }
 
-  if (event.controller !== 74) {
-    return;
-  }
-
+  // Handle MPE vs Standard CC forwarding
   if (!isMpeModeEnabled()) {
-    // CC74 is an MPE-specific timbre controller.
-    // In non-MPE mode, we do NOT forward it to avoid confusion or ghost modulation.
+    // In non-MPE mode, do not forward CC74 to avoid "ghost timbre" issues.
+    if (event.controller === 74) {
+      return;
+    }
+    // Forward other CCs to Channel 1
+    sendLoopControlChange(event.controller, event.value7, 1);
     return;
   }
 
+  // MPE Mode: Resolve output channels for the CC
   const outputChannels = listOutputChannelsForInputChannel(
     Array.from(ext.state.routedNotesByPad.values()),
     event.channel,
   );
-  outputChannels.forEach((outputChannel) => {
-    sendLoopControlChange(74, event.value7, outputChannel);
-  });
+
+  if (outputChannels.length > 0) {
+    outputChannels.forEach((outputChannel) => {
+      sendLoopControlChange(event.controller, event.value7, outputChannel);
+    });
+  } else {
+    // Fallback: If no notes are held, route to the default mapped channel for this input channel
+    const outputChannel = resolveOutputChannel(event.channel, true);
+    sendLoopControlChange(event.controller, event.value7, outputChannel);
+  }
 }
 
 function handlePitchBend(msg) {
@@ -1593,16 +1631,21 @@ function setModPressure(coord, value, channel = 1, noteNumber = null) {
   const touchId = modTouchId(channel, noteNumber, coord);
   ext.state.modChannelsByPad.set(touchId, channel || 1);
   ext.state.modPressuresByPad.set(touchId, clampInt(value, 0, 127, 0));
-  const current = Math.max(0, ...ext.state.modPressuresByPad.values());
-  sendLoopModWheel(current);
+  sendLoopModWheel(getCurrentModWheelValue());
 }
 
 function clearModPressure(coord, channel = 1, noteNumber = null) {
   const touchId = modTouchId(channel, noteNumber, coord);
   ext.state.modChannelsByPad.delete(touchId);
   ext.state.modPressuresByPad.delete(touchId);
-  const current = ext.state.modPressuresByPad.size > 0 ? Math.max(...ext.state.modPressuresByPad.values()) : 0;
-  sendLoopModWheel(current);
+  sendLoopModWheel(getCurrentModWheelValue());
+}
+
+function getCurrentModWheelValue() {
+  if (ext.state.modPressuresByPad.size === 0) {
+    return 0;
+  }
+  return clampInt(Math.max(...ext.state.modPressuresByPad.values()), 0, 127, 0);
 }
 
 function sendLoopNoteOn(noteNumber, velocity = 100, channel = 1) {
@@ -1657,8 +1700,12 @@ function sendLoopControlChange(cc, value, channel = 1) {
 }
 
 function sendLoopModWheel(value) {
-  // CC1 is shared in MPE; keep it on channel 1.
-  sendLoopControlChange(1, value, 1);
+  // Slightly smooth MW changes, but snap to zero on release.
+  const raw = clampInt(value, 0, 127, 0);
+  const prev = Number.isFinite(ext.state.modWheelSmoothed) ? ext.state.modWheelSmoothed : raw;
+  const next = raw === 0 ? 0 : clampInt(Math.round(prev + (raw - prev) * MOD_WHEEL_SMOOTHING_ALPHA), 0, 127, 0);
+  ext.state.modWheelSmoothed = next;
+  sendLoopControlChange(1, next, 1);
 }
 
 function sendLoopPolyAftertouch(noteNumber, value, channel = 1) {
@@ -1681,6 +1728,7 @@ function sendRawToLoop(data) {
     return;
   }
 
+  console.debug("[main] tx loop raw", data);
   try {
     out.send(data);
   } catch (err) {
@@ -1766,6 +1814,7 @@ function clearHeldState() {
   ext.state.heldPads.clear();
   ext.state.modPressuresByPad.clear();
   ext.state.modChannelsByPad.clear();
+  ext.state.modWheelSmoothed = null;
   ext.state.routedNotesByPad.clear();
   ext.state.activeLoopNotes.clear();
   ext.state.recentLoopNoteOns.clear();
