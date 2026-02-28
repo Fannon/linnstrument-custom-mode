@@ -90,6 +90,9 @@ Adjust your performance settings in the **Advanced Settings** panel:
 This project is built with vanilla JavaScript—no heavy frameworks, just clean modules and high performance.
 
 ### Project Structure
+
+> For more detailed technical documentation and a deeper dive into the module architecture, see the **[Agent Guide](AGENTS.md)**.
+
 ```text
 web/src/
   main.js             # App entry point, MIDI handlers, UI binding
