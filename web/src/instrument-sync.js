@@ -30,20 +30,37 @@ export const FACTORY_DEFAULT_LAYOUT = {
   GLOBAL_ROW_OFFSET: 5, // Fourths
 };
 
-function nrpn(value) {
-  return [value >> 7, value & 0x7f];
-}
-
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function setLinnStrumentParamValue(output, paramNumber, value) {
-  if (!output) return;
-  // WebMidi.js sendNrpnValue expects raw 14-bit integers for parameter and value
-  console.log(`[MIDI TX DEBUG] NRPN Param=${paramNumber}, Value=${value}`);
-  output.sendNrpnValue(paramNumber, value, { channels: 1 });
-  await sleep(30); // Increased throttle for hardware stability
+  if (!output?.channels?.[1]) return;
+  const channel = output.channels[1];
+
+  // LinnStrument requires an exact sequence of 6 CC messages for NRPN:
+  // 1. NRPN MSB (CC 99)
+  // 2. NRPN LSB (CC 98)
+  // 3. Data Entry MSB (CC 6)
+  // 4. Data Entry LSB (CC 38)
+  // 5. Null Parameter MSB (CC 101 = 127)
+  // 6. Null Parameter LSB (CC 100 = 127)
+
+  const paramMsb = (paramNumber >> 7) & 0x7F;
+  const paramLsb = paramNumber & 0x7F;
+  const valueMsb = (value >> 7) & 0x7F;
+  const valueLsb = value & 0x7F;
+
+  console.log(`[MIDI TX DEBUG] NRPN Param=${paramNumber} (MSB:${paramMsb} LSB:${paramLsb}), Value=${value} (MSB:${valueMsb} LSB:${valueLsb})`);
+
+  channel.sendControlChange(99, paramMsb);
+  channel.sendControlChange(98, paramLsb);
+  channel.sendControlChange(6, valueMsb);
+  channel.sendControlChange(38, valueLsb);
+  channel.sendControlChange(101, 127);
+  channel.sendControlChange(100, 127);
+
+  await sleep(30); // Throttle for hardware stability
 }
 
 export async function applyLinnStrumentStandardLayout(output) {
