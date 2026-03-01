@@ -108,6 +108,9 @@ const AUTO_APPLY_FIELD_IDS = [
   "colorNonScaleNote",
   "deviceStartNote",
   "deviceRowOffset",
+  "exitTargetPreset",
+  "stateTonicSelect",
+  "stateScaleSelect",
 ];
 const AUTO_APPLY_RECONNECT_FIELD_IDS = new Set([
   "instrumentInputPort",
@@ -244,19 +247,28 @@ function bindUi() {
     detachLoopInputListeners();
     
     if (ext.midi.instrumentOutput) {
-      await exitLinnStrument(ext.midi.instrumentOutput);
-      log.info("LinnStrument restored to default state (Preset 1, Fourths). App disconnected.");
+      await exitLinnStrument(ext.midi.instrumentOutput, ext.config.exitTargetPreset);
+      log.info(`LinnStrument restored to default state (Preset ${ext.config.exitTargetPreset}, Fourths). App disconnected.`);
     } else {
       log.warn("LinnStrument output not connected. Local state shut down.");
     }
     
     updateRoutingStatus();
+    
+    // Update tooltip to show which preset was used (optional, but good for feedback)
+    const exitBtn = document.getElementById("exitApp");
+    if (exitBtn) {
+      exitBtn.title = `LinnStrument restored to Preset ${ext.config.exitTargetPreset}.`;
+    }
   });
 
   bindAutoApplyConfigFields();
 
   document.getElementById("resetConfig")?.addEventListener("click", async (event) => {
     event.preventDefault();
+    if (!confirm("Are you sure you want to reset all settings to defaults?")) {
+      return;
+    }
     clearPersistedConfig();
     ext.config = { ...defaultConfig };
     populateUiFromConfig();
@@ -427,6 +439,7 @@ function populateUiFromConfig() {
   setValue("deviceStartNote", ext.config.deviceStartNote);
   setValue("deviceRowOffset", ext.config.deviceRowOffset);
   setValue("loopInputPort", ext.config.loopInputPort);
+  setValue("exitTargetPreset", ext.config.exitTargetPreset ?? defaultConfig.exitTargetPreset);
   applyUiColorThemeFromConfig();
 }
 
@@ -467,6 +480,7 @@ function readConfigFromUi() {
   const colorNonScaleNote = parseLedColor(getValue("colorNonScaleNote"), defaultConfig.colorNonScaleNote);
   const deviceStartNote = clampInt(getValue("deviceStartNote"), 0, 127, defaultConfig.deviceStartNote);
   const deviceRowOffset = clampInt(getValue("deviceRowOffset"), 0, 24, defaultConfig.deviceRowOffset);
+  const exitTargetPreset = clampInt(getValue("exitTargetPreset"), 1, 6, defaultConfig.exitTargetPreset);
 
   ext.config = {
     ...ext.config,
@@ -484,6 +498,7 @@ function readConfigFromUi() {
     colorNonScaleNote,
     deviceStartNote,
     deviceRowOffset,
+    exitTargetPreset,
     instrumentInputPort: getValue("instrumentInputPort") || "",
     instrumentOutputPort: getValue("instrumentOutputPort") || "",
     loopOutputPort: getValue("loopOutputPort") || "",
@@ -503,6 +518,7 @@ function readConfigFromUi() {
   setValue("deviceRowOffset", ext.config.deviceRowOffset);
   setValue("stateTonicSelect", mod(ext.config.selectedKey ?? defaultConfig.selectedKey, 12));
   setValue("stateScaleSelect", ext.config.selectedModeId ?? defaultConfig.selectedModeId);
+  setValue("exitTargetPreset", ext.config.exitTargetPreset);
 }
 
 function refreshPortSelectors({ autoSelectInstrument = false } = {}) {
@@ -947,6 +963,7 @@ function handleNoteOn(msg) {
     handleNoteOff(msg);
     return;
   }
+
   if (DEBUG_MIDI_FLOW && raw) {
     const line = `[rx noteon] src=${msg?.__inputSource || "unknown"} ch=${raw.channel} note=${raw.noteNumber} vel=${raw.velocity}`;
     log.info(line);
@@ -1384,6 +1401,7 @@ function normalizeOverlayTriggerEvent(msg, options = {}) {
   }
 
   const resolvedCoord = resolvePadCoord(raw.noteNumber, raw.channel);
+
   if (debug) {
     debugControlOverlay(`${phase}:probe`, {
       noteNumber: raw.noteNumber,

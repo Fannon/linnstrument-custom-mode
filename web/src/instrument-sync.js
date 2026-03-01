@@ -9,6 +9,7 @@ export const NRPN = {
   SPLIT_RIGHT_BEND_RANGE: 119,
   SPLIT_LEFT_OCTAVE: 36,
   SPLIT_LEFT_TRANSPOSE_PITCH: 37,
+  SPLIT_LEFT_TRANSPOSE_LIGHTS: 38,
   GLOBAL_SPLIT_ACTIVE: 200,
   GLOBAL_ROW_OFFSET: 227,
   DEVICE_USER_FIRMWARE_MODE: 245,
@@ -17,8 +18,9 @@ export const NRPN = {
 
 export const STANDARD_LAYOUT = {
   DEVICE_START_NOTE: 0,
-  SPLIT_LEFT_OCTAVE: 3,
-  SPLIT_LEFT_TRANSPOSE_PITCH: 1,
+  SPLIT_LEFT_OCTAVE: 2, // -3 Octaves
+  SPLIT_LEFT_TRANSPOSE_PITCH: 7, // 0 Pitch Transpose
+  SPLIT_LEFT_TRANSPOSE_LIGHTS: 0, // -6 Light Transpose
 };
 
 function nrpn(value) {
@@ -43,6 +45,7 @@ export async function applyLinnStrumentStandardLayout(output) {
   await setLinnStrumentParamValue(output, NRPN.GLOBAL_ROW_OFFSET, 0);
   await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_OCTAVE, STANDARD_LAYOUT.SPLIT_LEFT_OCTAVE);
   await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_TRANSPOSE_PITCH, STANDARD_LAYOUT.SPLIT_LEFT_TRANSPOSE_PITCH);
+  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_TRANSPOSE_LIGHTS, STANDARD_LAYOUT.SPLIT_LEFT_TRANSPOSE_LIGHTS);
 }
 
 export async function applyLinnStrumentMpeInputMode(output, enabled) {
@@ -68,7 +71,7 @@ export async function applyLinnStrumentMpeInputMode(output, enabled) {
   await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_MIDI_EXPRESSION_FOR_Z, 0);
 }
 
-export async function exitLinnStrument(output) {
+export async function exitLinnStrument(output, targetPreset = 1) {
   // 1. Ensure User Firmware is OFF first
   await setLinnStrumentParamValue(output, NRPN.DEVICE_USER_FIRMWARE_MODE, 0);
   
@@ -103,6 +106,7 @@ export async function exitLinnStrument(output) {
   await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_MIDI_MODE, 1);
   await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_MAIN_CHANNEL, 1);
 
-  // 8. Last, Restore to Preset 1 (value 0)
-  await setLinnStrumentParamValue(output, NRPN.CURRENT_PRESET, 0);
+  // 8. Last, Restore to target Preset (default to 1, which is value 0)
+  const presetValue = Math.max(0, Math.min(5, targetPreset - 1));
+  await setLinnStrumentParamValue(output, NRPN.CURRENT_PRESET, presetValue);
 }

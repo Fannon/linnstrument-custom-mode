@@ -28,6 +28,7 @@ export const defaultConfig = {
   selectedKey: 0,
   selectedModeId: "major",
   allNotesEnabled: false,
+  exitTargetPreset: 1,
 };
 
 export function initConfig() {
