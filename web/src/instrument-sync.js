@@ -95,9 +95,10 @@ export async function exitLinnStrument(output, targetPreset = 1) {
   // 4. Ensure Split is OFF
   await setLinnStrumentParamValue(output, NRPN.GLOBAL_SPLIT_ACTIVE, 0);
 
-  // 5. Reset Octave and Transpose to factory defaults (5 and 7 are 'center' in firmware)
+  // 5. Reset Octave and Transposes to factory defaults (5 and 7 are 'center' in firmware)
   await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_OCTAVE, 5);
   await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_TRANSPOSE_PITCH, 7);
+  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_TRANSPOSE_LIGHTS, 7);
 
   // 6. Reset Pitch Bend Range to 48 semitones (MPE Standard default used by midimech)
   await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_BEND_RANGE, 48);
