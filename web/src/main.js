@@ -1169,35 +1169,19 @@ function forwardPressureForInputChannel(
   { allowNonMpeBroadcast = false } = {},
 ) {
   const value = clampInt(pressureValue, 0, 127, 0);
-  const heldPlayableEntriesOnChannel = Array.from(ext.state.routedNotesByPad.values()).filter(
-    (entry) => getRoutedInputChannel(entry) === inputChannel,
-  );
-  if (heldPlayableEntriesOnChannel.length === 0) {
-    return;
-  }
+  const mpeEnabled = isMpeModeEnabled();
 
-  if (isMpeModeEnabled()) {
-    const outputChannels = listOutputChannelsForInputChannel(
-      Array.from(ext.state.routedNotesByPad.values()),
-      inputChannel,
-    );
-    outputChannels.forEach((outputChannel) => {
-      sendLoopChannelAftertouch(value, outputChannel);
-    });
-    return;
-  }
-
-  const uniqueNotes = new Set(heldPlayableEntriesOnChannel.map((entry) => entry.note));
-  if (uniqueNotes.size === 1) {
-    const [noteNumber] = uniqueNotes;
-    sendLoopPolyAftertouch(noteNumber, value, 1);
-    return;
-  }
-
-  if (allowNonMpeBroadcast) {
-    uniqueNotes.forEach((noteNumber) => {
-      sendLoopPolyAftertouch(noteNumber, value, 1);
-    });
+  if (mpeEnabled) {
+    const routedEntries = Array.from(ext.state.routedNotesByPad.values());
+    const outputChannels = listOutputChannelsForInputChannel(routedEntries, inputChannel);
+    if (outputChannels.length > 0) {
+      outputChannels.forEach((outputChannel) => {
+        sendLoopChannelAftertouch(value, outputChannel);
+      });
+    }
+  } else {
+    // Non-MPE: Forward all pressure events 1:1 to Channel Aftertouch on Channel 1.
+    sendLoopChannelAftertouch(value, 1);
   }
 }
 
@@ -1267,11 +1251,7 @@ function handleControlChange(msg) {
 
   // Handle MPE vs Standard CC forwarding
   if (!isMpeModeEnabled()) {
-    // In non-MPE mode, do not forward CC74 to avoid "ghost timbre" issues.
-    if (event.controller === 74) {
-      return;
-    }
-    // Forward other CCs to Channel 1
+    // Non-MPE: Forward all CCs 1:1 to Channel 1 (including Y-axis CC74).
     sendLoopControlChange(event.controller, event.value7, 1);
     return;
   }
@@ -1301,36 +1281,28 @@ function handleControlChange(msg) {
 function handlePitchBend(msg) {
   const channel = getChannel(msg);
   const value14 = getPitchBend14(msg);
-  const routedEntries = Array.from(ext.state.routedNotesByPad.values());
-  const outputChannels = listOutputChannelsForInputChannel(routedEntries, channel);
+  const mpeEnabled = isMpeModeEnabled();
+
   if (DEBUG_PITCH_TRACE) {
     const data = msg?.message?.data || msg?.data || msg?.dataBytes;
     console.debug(
-      `[pitch-trace] bend inCh=${channel} value14=${value14} routedOut=${outputChannels.join(",") || "-"} raw=${data ? Array.from(data).join(",") : "-"}`,
+      `[pitch-trace] bend inCh=${channel} value14=${value14} mpeEnabled=${mpeEnabled} raw=${data ? Array.from(data).join(",") : "-"}`,
     );
   }
 
-  if (isMpeModeEnabled()) {
-    // Keep MPE slide behavior transparent: pass incoming bend through 1:1,
-    // targeting routed output channel(s) for this input channel.
+  if (mpeEnabled) {
+    // Transparent 1:1 forwarding for MPE mode.
+    const routedEntries = Array.from(ext.state.routedNotesByPad.values());
+    const outputChannels = listOutputChannelsForInputChannel(routedEntries, channel);
     if (outputChannels.length > 0) {
       outputChannels.forEach((outputChannel) => {
         sendLoopPitchBend14(value14, outputChannel);
       });
     }
-    return;
+  } else {
+    // Non-MPE: Forward all pitch bend events 1:1 to Channel 1.
+    sendLoopPitchBend14(value14, 1);
   }
-
-  if (!shouldForwardPitchBendOnChannel(channel)) {
-    return;
-  }
-
-  const scaled14 = scalePitchBendForConfig(value14);
-  if (shouldSuppressNonMpePitchBend()) {
-    sendLoopPitchBend14(8192, 1);
-    return;
-  }
-  sendLoopPitchBend14(scaled14, 1);
 }
 
 function findRoutedEntryBySourceKey(sourceKey) {

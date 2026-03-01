@@ -25,6 +25,7 @@ const MSG_NOTE_ON = 0x90
 const MSG_NOTE_OFF = 0x80
 
 const SHOULD_SEND_INIT = true
+const USE_MPE_MODE = true
 const PITCH_BEND_RANGE = 48
 const SEND_ON_MAIN = true
 const SEND_ON_USER = false
@@ -50,7 +51,7 @@ function init () {
   noteInput.setShouldConsumeEvents(false)
 
   if (typeof noteInput.setUseExpressiveMidi === 'function') {
-    noteInput.setUseExpressiveMidi(true, 0, PITCH_BEND_RANGE)
+    noteInput.setUseExpressiveMidi(USE_MPE_MODE, 0, PITCH_BEND_RANGE)
   }
 
   midiIn.setMidiCallback(onMidi)
@@ -222,10 +223,12 @@ function sendInitializationMessages () {
     return
   }
 
-  // MPE mode: lower zone with 15 member channels.
+  // MPE mode: lower zone with specified member channels.
+  // Using 15 member channels for MPE, or 0 for non-MPE (single channel).
+  const memberChannels = USE_MPE_MODE ? 15 : 0
   midiOut.sendMidi(0xB0, 101, 0)
   midiOut.sendMidi(0xB0, 100, 6)
-  midiOut.sendMidi(0xB0, 6, 15)
+  midiOut.sendMidi(0xB0, 6, memberChannels)
   midiOut.sendMidi(0xB0, 38, 0)
 
   // Disable upper zone.
