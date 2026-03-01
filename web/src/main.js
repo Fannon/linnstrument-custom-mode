@@ -55,8 +55,7 @@ import {
   extractRawControlChangeEvent,
 } from "./routing.js";
 import {
-  NRPN,
-  STANDARD_LAYOUT,
+  CONTROL_MODE_LAYOUT,
   setLinnStrumentParamValue as setLinnStrumentParamValueCore,
   applyLinnStrumentStandardLayout,
   applyLinnStrumentMpeInputMode,
@@ -2085,10 +2084,11 @@ async function ensureLinnStrumentStandardLayout(reason = "startup") {
     // - Split OFF (single full-width surface)
     // - Row Offset = No overlap
     // - Zero split pitch transposition
+    console.log(`[INIT DEBUG] Applying Control Mode Layout: Octave=${CONTROL_MODE_LAYOUT.SPLIT_LEFT_OCTAVE}, Transpose=${CONTROL_MODE_LAYOUT.SPLIT_LEFT_TRANSPOSE_PITCH}, Lights=${CONTROL_MODE_LAYOUT.SPLIT_LEFT_TRANSPOSE_LIGHTS}`);
     await applyLinnStrumentStandardLayout(ext.midi.instrumentOutput);
-    if (ext.config.deviceStartNote !== STANDARD_LAYOUT.DEVICE_START_NOTE) {
-      ext.config.deviceStartNote = STANDARD_LAYOUT.DEVICE_START_NOTE;
-      setValue("deviceStartNote", STANDARD_LAYOUT.DEVICE_START_NOTE);
+    if (ext.config.deviceStartNote !== CONTROL_MODE_LAYOUT.DEVICE_START_NOTE) {
+      ext.config.deviceStartNote = CONTROL_MODE_LAYOUT.DEVICE_START_NOTE;
+      setValue("deviceStartNote", CONTROL_MODE_LAYOUT.DEVICE_START_NOTE);
       persistConfig(ext.config);
     }
     log.info(`Requested LinnStrument standard no-overlap layout (notes 0..127) on ${reason}.`);

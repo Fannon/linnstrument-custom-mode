@@ -16,11 +16,18 @@ export const NRPN = {
   CURRENT_PRESET: 221,
 };
 
-export const STANDARD_LAYOUT = {
+export const CONTROL_MODE_LAYOUT = {
   DEVICE_START_NOTE: 0,
-  SPLIT_LEFT_OCTAVE: 2, // -3 Octaves
+  SPLIT_LEFT_OCTAVE: 2, // -3 Octaves (required to map bottom-left pad to MIDI note 0)
   SPLIT_LEFT_TRANSPOSE_PITCH: 7, // 0 Pitch Transpose
   SPLIT_LEFT_TRANSPOSE_LIGHTS: 0, // -6 Light Transpose
+};
+
+export const FACTORY_DEFAULT_LAYOUT = {
+  SPLIT_LEFT_OCTAVE: 5, // 0 Octave offset
+  SPLIT_LEFT_TRANSPOSE_PITCH: 7, // 0 Pitch Transpose
+  SPLIT_LEFT_TRANSPOSE_LIGHTS: 7, // 0 Light Transpose
+  GLOBAL_ROW_OFFSET: 5, // Fourths
 };
 
 function nrpn(value) {
@@ -43,9 +50,9 @@ export async function applyLinnStrumentStandardLayout(output) {
   await setLinnStrumentParamValue(output, NRPN.DEVICE_USER_FIRMWARE_MODE, 0);
   await setLinnStrumentParamValue(output, NRPN.GLOBAL_SPLIT_ACTIVE, 0);
   await setLinnStrumentParamValue(output, NRPN.GLOBAL_ROW_OFFSET, 0);
-  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_OCTAVE, STANDARD_LAYOUT.SPLIT_LEFT_OCTAVE);
-  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_TRANSPOSE_PITCH, STANDARD_LAYOUT.SPLIT_LEFT_TRANSPOSE_PITCH);
-  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_TRANSPOSE_LIGHTS, STANDARD_LAYOUT.SPLIT_LEFT_TRANSPOSE_LIGHTS);
+  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_OCTAVE, CONTROL_MODE_LAYOUT.SPLIT_LEFT_OCTAVE);
+  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_TRANSPOSE_PITCH, CONTROL_MODE_LAYOUT.SPLIT_LEFT_TRANSPOSE_PITCH);
+  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_TRANSPOSE_LIGHTS, CONTROL_MODE_LAYOUT.SPLIT_LEFT_TRANSPOSE_LIGHTS);
 }
 
 export async function applyLinnStrumentMpeInputMode(output, enabled) {
@@ -90,15 +97,15 @@ export async function exitLinnStrument(output, targetPreset = 1) {
   await sleep(64); // Final pause before NRPNs
 
   // 3. Set Row Offset to default Fourths (value 5)
-  await setLinnStrumentParamValue(output, NRPN.GLOBAL_ROW_OFFSET, 5);
+  await setLinnStrumentParamValue(output, NRPN.GLOBAL_ROW_OFFSET, FACTORY_DEFAULT_LAYOUT.GLOBAL_ROW_OFFSET);
   
   // 4. Ensure Split is OFF
   await setLinnStrumentParamValue(output, NRPN.GLOBAL_SPLIT_ACTIVE, 0);
 
-  // 5. Reset Octave and Transposes to factory defaults (5 and 7 are 'center' in firmware)
-  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_OCTAVE, 5);
-  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_TRANSPOSE_PITCH, 7);
-  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_TRANSPOSE_LIGHTS, 7);
+  // 5. Reset Octave and Transposes to factory defaults (0 offset)
+  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_OCTAVE, FACTORY_DEFAULT_LAYOUT.SPLIT_LEFT_OCTAVE);
+  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_TRANSPOSE_PITCH, FACTORY_DEFAULT_LAYOUT.SPLIT_LEFT_TRANSPOSE_PITCH);
+  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_TRANSPOSE_LIGHTS, FACTORY_DEFAULT_LAYOUT.SPLIT_LEFT_TRANSPOSE_LIGHTS);
 
   // 6. Reset Pitch Bend Range to 48 semitones (MPE Standard default used by midimech)
   await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_BEND_RANGE, 48);
