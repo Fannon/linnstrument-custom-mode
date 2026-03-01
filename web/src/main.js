@@ -55,6 +55,7 @@ import {
   extractRawControlChangeEvent,
 } from "./routing.js";
 import {
+  NRPN,
   CONTROL_MODE_LAYOUT,
   setLinnStrumentParamValue as setLinnStrumentParamValueCore,
   applyLinnStrumentStandardLayout,
