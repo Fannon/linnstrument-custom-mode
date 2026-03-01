@@ -29,6 +29,8 @@ export const defaultConfig = {
   selectedModeId: "major",
   allNotesEnabled: false,
   exitTargetPreset: 1,
+  linnstrumentNrpnParamDelayMs: 30,
+  applyControlModeToRightSplit: false,
 };
 
 export function initConfig() {

@@ -20,7 +20,6 @@ import {
   parseLedColor,
   mod,
   getPitchBend14,
-  scalePitchBend14,
   resolveNoOverlapPadCoord as resolveNoOverlapPadCoordCore,
   getActiveLayoutRowOffset as getActiveLayoutRowOffsetCore,
 } from "./core-logic.js";
@@ -57,9 +56,11 @@ import {
 import {
   NRPN,
   CONTROL_MODE_LAYOUT,
+  setLinnStrumentParamValue,
   applyLinnStrumentStandardLayout,
   applyLinnStrumentMpeInputMode,
   exitLinnStrument,
+  sleep,
 } from "./instrument-sync.js";
 const MODE_BY_ID = Object.fromEntries(MODES.map((mode) => [mode.id, mode]));
 
@@ -88,7 +89,6 @@ const INSTRUMENT_COLORS = {
 const DEBUG_CONTROL_OVERLAY = false;
 const DEBUG_MIDI_FLOW = false;
 const DEBUG_PITCH_TRACE = false;
-const MIDIMECH_PRESET_ID = "midimech-v1";
 const MOD_WHEEL_SMOOTHING_ALPHA = 0.35;
 const AUTO_APPLY_FIELD_IDS = [
   "instrumentInputPort",
@@ -117,6 +117,9 @@ const AUTO_APPLY_RECONNECT_FIELD_IDS = new Set([
   "loopOutputPort",
   "loopInputPort",
 ]);
+
+const CONTROL_MODE_TRANSPOSE_PASSES = 2;
+const INIT_LAYOUT_SETTLE_DELAY_MS = 60;
 
 export const ext = {
   config: {},
@@ -168,7 +171,19 @@ WebMidi.enable()
   });
 
 async function init() {
+  const initStartedAtMs = performance.now();
   ext.config = initConfig();
+
+  console.log("[INIT SUMMARY] Startup requested", {
+    startedAt: new Date().toISOString(),
+    ports: {
+      instrumentInput: ext.config.instrumentInputPort,
+      instrumentOutput: ext.config.instrumentOutputPort,
+      loopOutput: ext.config.loopOutputPort,
+      loopInput: ext.config.loopInputPort,
+    },
+    linnstrument: buildStartupLinnstrumentParamSummary(ext.config),
+  });
 
   bindUi();
   bindMidiHotplugListeners();
@@ -178,13 +193,34 @@ async function init() {
   refreshPortSelectors({ autoSelectInstrument: shouldAutoSelectPorts() });
 
   await connectMidiFromConfig();
-  await ensureLinnStrumentStandardLayout("startup");
-  await configureLinnStrumentMpeInputMode(isMpeModeEnabled(), "startup");
+  const standardLayoutApplied = await ensureLinnStrumentStandardLayout("startup");
+  await sleep(INIT_LAYOUT_SETTLE_DELAY_MS);
+  const mpeInputModeConfigured = await configureLinnStrumentMpeInputMode(isMpeModeEnabled(), "startup");
   await resendPitchBendRangeFromConfig({ includeLoop: false, source: "startup" });
   rebuildLayout();
 
+  ext.util = {
+    setOctave: async (octave) => {
+      if (!ext.midi.instrumentOutput) {
+        console.error("No instrument output connected.");
+        return;
+      }
+      // Value 5 is center (0). 0 is -5 octaves. 10 is +5 octaves.
+      const value = Math.max(0, Math.min(10, octave + 5));
+      console.log(`[util.setOctave] Setting octave to ${octave} (MIDI Value ${value})`);
+      await setLinnStrumentParamValue(ext.midi.instrumentOutput, NRPN.SPLIT_LEFT_OCTAVE, value, getLinnstrumentSyncOptions());
+    }
+  };
+
   log.success("Prototype initialized.");
   log.info("Using LinnStrument standard input decoding.");
+  console.log("[INIT SUMMARY] Startup completed", {
+    durationMs: Math.round(performance.now() - initStartedAtMs),
+    instrumentOutputConnected: Boolean(ext.midi.instrumentOutput),
+    standardLayoutApplied,
+    mpeInputModeConfigured,
+    linnstrument: buildStartupLinnstrumentParamSummary(ext.config),
+  });
 }
 
 function bindMidiHotplugListeners() {
@@ -238,22 +274,48 @@ async function reconcileMidiAfterHotplug(trigger) {
 
 function bindUi() {
   document.getElementById("exitApp")?.addEventListener("click", async () => {
+    const exitStartedAtMs = performance.now();
+    const exitSummary = buildExitLinnstrumentParamSummary(ext.config);
+    console.log("[EXIT SUMMARY] Exit & Restore requested", {
+      startedAt: new Date().toISOString(),
+      instrumentOutputConnected: Boolean(ext.midi.instrumentOutput),
+      linnstrument: exitSummary,
+    });
+
     ext.state.exited = true;
     ext.state.instrumentPaintingEnabled = false;
 
     // Stop listening to hardware to avoid further calculations/repaints
     detachInstrumentInputListeners();
     detachLoopInputListeners();
-    
+
+    let restoreApplied = false;
+    let restoreError = null;
     if (ext.midi.instrumentOutput) {
-      await exitLinnStrument(ext.midi.instrumentOutput, ext.config.exitTargetPreset);
-      log.info(`LinnStrument restored to default state (Preset ${ext.config.exitTargetPreset}, Fourths). App disconnected.`);
+      try {
+        await exitLinnStrument(ext.midi.instrumentOutput, ext.config.exitTargetPreset, getLinnstrumentSyncOptions());
+        restoreApplied = true;
+        log.info(
+          `LinnStrument restored to default state (Preset ${ext.config.exitTargetPreset}, Fourths). App disconnected.`,
+        );
+      } catch (err) {
+        restoreError = err?.message || String(err);
+        log.warn(`LinnStrument restore failed during exit: ${restoreError}`);
+      }
     } else {
       log.warn("LinnStrument output not connected. Local state shut down.");
     }
-    
+
     updateRoutingStatus();
-    
+
+    console.log("[EXIT SUMMARY] Exit & Restore completed", {
+      durationMs: Math.round(performance.now() - exitStartedAtMs),
+      instrumentOutputConnected: Boolean(ext.midi.instrumentOutput),
+      restoreApplied,
+      restoreError,
+      linnstrument: exitSummary,
+    });
+
     // Update tooltip to show which preset was used (optional, but good for feedback)
     const exitBtn = document.getElementById("exitApp");
     if (exitBtn) {
@@ -274,19 +336,11 @@ function bindUi() {
     refreshPortSelectors({ autoSelectInstrument: true });
     await connectMidiFromConfig();
     await ensureLinnStrumentStandardLayout("reset-defaults");
+    await sleep(INIT_LAYOUT_SETTLE_DELAY_MS);
     await configureLinnStrumentMpeInputMode(isMpeModeEnabled(), "reset-defaults");
     await resendPitchBendRangeFromConfig({ includeLoop: false, source: "reset-defaults" });
     rebuildLayout({ paintInstrument: true });
     log.warn("Configuration reset to defaults.");
-  });
-
-  document.getElementById("restoreLinnstrument")?.addEventListener("click", async (event) => {
-    event.preventDefault();
-    await ensureLinnStrumentStandardLayout("manual-restore");
-    await configureLinnStrumentMpeInputMode(isMpeModeEnabled(), "manual-restore");
-    await resendPitchBendRangeFromConfig({ includeLoop: false, source: "manual-restore" });
-    rebuildLayout({ paintInstrument: true });
-    log.info("Reapplied LinnStrument standard input mode.");
   });
 
   document.getElementById("resendPbRange")?.addEventListener("click", async () => {
@@ -1649,11 +1703,14 @@ function refreshInstrumentSameOutputNoteHighlights(noteNumber) {
     return;
   }
 
-  const activeCoordsForNote = new Set(
-    Array.from(ext.state.routedNotesByPad.values())
-      .filter(([_coord, routed]) => routed.note === noteNumber)
-      .map(([coord]) => coord),
-  );
+  const activeCoordsForNote = new Set();
+  if (ext.state.routedNotesByPad && typeof ext.state.routedNotesByPad.entries === "function") {
+    for (const [coord, routed] of ext.state.routedNotesByPad.entries()) {
+      if (routed.note === noteNumber) {
+        activeCoordsForNote.add(coord);
+      }
+    }
+  }
   const hasActive = activeCoordsForNote.size > 0;
 
   for (const [coord, meta] of Object.entries(ext.layout.cellMeta || {})) {
@@ -1855,8 +1912,18 @@ async function resendPitchBendRangeFromConfig({ includeLoop = false, source = "u
   const loopSent = includeLoop ? setLoopPitchBendRangeSemitones(semitones) : false;
   if (ext.midi.instrumentOutput) {
     try {
-      await setLinnStrumentParamValue(NRPN.SPLIT_LEFT_BEND_RANGE, semitones);
-      await setLinnStrumentParamValue(NRPN.SPLIT_RIGHT_BEND_RANGE, semitones);
+      await setLinnStrumentParamValue(
+        ext.midi.instrumentOutput,
+        NRPN.SPLIT_LEFT_BEND_RANGE,
+        semitones,
+        getLinnstrumentSyncOptions(),
+      );
+      await setLinnStrumentParamValue(
+        ext.midi.instrumentOutput,
+        NRPN.SPLIT_RIGHT_BEND_RANGE,
+        semitones,
+        getLinnstrumentSyncOptions(),
+      );
     } catch (err) {
       console.warn("Failed to resend LinnStrument bend range", err);
     }
@@ -2083,11 +2150,13 @@ async function ensureLinnStrumentStandardLayout(reason = "startup") {
     return false;
   }
   try {
-    // Enforce a deterministic physical note map for pad decoding:
-    // - Zero split pitch transposition
-    console.log(`[INIT DEBUG] Applying Control Mode Layout: Octave=${CONTROL_MODE_LAYOUT.SPLIT_LEFT_OCTAVE}, Transpose=${CONTROL_MODE_LAYOUT.SPLIT_LEFT_TRANSPOSE_PITCH}, Lights=${CONTROL_MODE_LAYOUT.SPLIT_LEFT_TRANSPOSE_LIGHTS}`);
-    await sleep(200); // 200ms breath to ensure hardware is ready
-    await applyLinnStrumentStandardLayout(ext.midi.instrumentOutput);
+    const syncOptions = getLinnstrumentSyncOptions();
+    log.info(
+      `Applying control-mode layout on ${reason}: octave=${CONTROL_MODE_LAYOUT.SPLIT_LEFT_OCTAVE}, pitch=${CONTROL_MODE_LAYOUT.SPLIT_LEFT_TRANSPOSE_PITCH}, lights=${CONTROL_MODE_LAYOUT.SPLIT_LEFT_TRANSPOSE_LIGHTS}.`,
+    );
+    await sleep(INIT_LAYOUT_SETTLE_DELAY_MS);
+    await applyLinnStrumentStandardLayout(ext.midi.instrumentOutput, syncOptions);
+    await sleep(INIT_LAYOUT_SETTLE_DELAY_MS);
     if (ext.config.deviceStartNote !== CONTROL_MODE_LAYOUT.DEVICE_START_NOTE) {
       ext.config.deviceStartNote = CONTROL_MODE_LAYOUT.DEVICE_START_NOTE;
       setValue("deviceStartNote", CONTROL_MODE_LAYOUT.DEVICE_START_NOTE);
@@ -2106,7 +2175,7 @@ async function configureLinnStrumentMpeInputMode(enabled, reason = "toggle") {
     return false;
   }
   try {
-    await applyLinnStrumentMpeInputMode(ext.midi.instrumentOutput, enabled);
+    await applyLinnStrumentMpeInputMode(ext.midi.instrumentOutput, enabled, getLinnstrumentSyncOptions());
     if (enabled) {
       log.info(`Configured LinnStrument MPE-style input mode on ${reason} (Channel Per Note, member channels 2-16).`);
       return true;
@@ -2151,6 +2220,136 @@ function buildActiveStatePayload(trigger = "state") {
   };
 }
 
+function buildStartupLinnstrumentParamSummary(config) {
+  const bendRange = clampInt(
+    config?.outputPitchBendRangeSemitones,
+    0,
+    96,
+    defaultConfig.outputPitchBendRangeSemitones,
+  );
+  const mpeEnabled = isMpeModeEnabledCore(config, defaultConfig);
+  const octaveSetting = CONTROL_MODE_LAYOUT.SPLIT_LEFT_OCTAVE;
+  const pitchSetting = CONTROL_MODE_LAYOUT.SPLIT_LEFT_TRANSPOSE_PITCH;
+  const lightsSetting = CONTROL_MODE_LAYOUT.SPLIT_LEFT_TRANSPOSE_LIGHTS;
+
+  const applyControlModeToRightSplit = Boolean(config?.applyControlModeToRightSplit);
+  const nrpnStandardLayout = [
+    { param: NRPN.DEVICE_USER_FIRMWARE_MODE, value: 0, name: "UserFirmwareModeOff" },
+    { param: NRPN.GLOBAL_SPLIT_ACTIVE, value: 0, name: "SplitOff" },
+    { param: NRPN.GLOBAL_SELECTED_SPLIT, value: 0, name: "SelectedSplitLeft" },
+    { param: NRPN.GLOBAL_ROW_OFFSET, value: 0, name: "NoOverlapRowOffset" },
+    { param: NRPN.SPLIT_LEFT_LOW_ROW_MODE, value: 0, name: "LeftLowRowOff" },
+    { param: NRPN.SPLIT_RIGHT_LOW_ROW_MODE, value: 0, name: "RightLowRowOff" },
+    { param: NRPN.SPLIT_LEFT_OCTAVE, value: octaveSetting, name: "LeftOctave" },
+    { param: NRPN.SPLIT_LEFT_TRANSPOSE_PITCH, value: pitchSetting, name: "LeftTransposePitch" },
+    { param: NRPN.SPLIT_LEFT_TRANSPOSE_LIGHTS, value: lightsSetting, name: "LeftTransposeLights" },
+  ];
+  if (applyControlModeToRightSplit) {
+    nrpnStandardLayout.push(
+      { param: NRPN.SPLIT_RIGHT_OCTAVE, value: octaveSetting, name: "RightOctave" },
+      { param: NRPN.SPLIT_RIGHT_TRANSPOSE_PITCH, value: pitchSetting, name: "RightTransposePitch" },
+      { param: NRPN.SPLIT_RIGHT_TRANSPOSE_LIGHTS, value: lightsSetting, name: "RightTransposeLights" },
+    );
+  }
+
+  return {
+    timingMs: {
+      nrpnParamDelay: getNrpnParamDelayMs(config),
+      initSettleDelay: INIT_LAYOUT_SETTLE_DELAY_MS,
+    },
+    targetControlMode: {
+      bottomLeftMidiNote: CONTROL_MODE_LAYOUT.DEVICE_START_NOTE,
+      octaveRaw: octaveSetting,
+      octaveSemitones: (octaveSetting - 5) * 12,
+      transposePitchRaw: pitchSetting,
+      transposePitchSemitones: pitchSetting - 7,
+      transposeLightsRaw: lightsSetting,
+      transposeLightsSemitones: lightsSetting - 7,
+      applyControlModeToRightSplit,
+      transposeApplyPasses: CONTROL_MODE_TRANSPOSE_PASSES,
+    },
+    nrpnStandardLayout,
+    nrpnMpeMode: mpeEnabled
+      ? [
+          { param: NRPN.SPLIT_LEFT_MIDI_MODE, value: 1, name: "LeftMidiModeChannelPerNote" },
+          { param: NRPN.SPLIT_LEFT_MAIN_CHANNEL, value: 1, name: "LeftMainChannel1" },
+          { param: NRPN.SPLIT_LEFT_SEND_Z, value: 1, name: "LeftSendZOn" },
+          { param: NRPN.SPLIT_LEFT_MIDI_EXPRESSION_FOR_Z, value: 1, name: "LeftZChannelPressure" },
+          { param: NRPN.SPLIT_RIGHT_MIDI_MODE, value: 1, name: "RightMidiModeChannelPerNote" },
+          { param: NRPN.SPLIT_RIGHT_MAIN_CHANNEL, value: 1, name: "RightMainChannel1" },
+          { param: NRPN.SPLIT_RIGHT_SEND_Z, value: 1, name: "RightSendZOn" },
+          { param: NRPN.SPLIT_RIGHT_MIDI_EXPRESSION_FOR_Z, value: 1, name: "RightZChannelPressure" },
+        ]
+      : [
+          { param: NRPN.SPLIT_LEFT_MIDI_MODE, value: 0, name: "LeftMidiModeOneChannel" },
+          { param: NRPN.SPLIT_LEFT_MAIN_CHANNEL, value: 1, name: "LeftMainChannel1" },
+          { param: NRPN.SPLIT_LEFT_SEND_Z, value: 1, name: "LeftSendZOn" },
+          { param: NRPN.SPLIT_LEFT_MIDI_EXPRESSION_FOR_Z, value: 0, name: "LeftZPolyAftertouch" },
+          { param: NRPN.SPLIT_RIGHT_MIDI_MODE, value: 0, name: "RightMidiModeOneChannel" },
+          { param: NRPN.SPLIT_RIGHT_MAIN_CHANNEL, value: 1, name: "RightMainChannel1" },
+          { param: NRPN.SPLIT_RIGHT_SEND_Z, value: 1, name: "RightSendZOn" },
+          { param: NRPN.SPLIT_RIGHT_MIDI_EXPRESSION_FOR_Z, value: 0, name: "RightZPolyAftertouch" },
+        ],
+    nrpnBendRange: [
+      { param: NRPN.SPLIT_LEFT_BEND_RANGE, value: bendRange, name: "LeftBendRange" },
+      { param: NRPN.SPLIT_RIGHT_BEND_RANGE, value: bendRange, name: "RightBendRange" },
+    ],
+  };
+}
+
+function buildExitLinnstrumentParamSummary(config) {
+  const targetPreset = clampInt(config?.exitTargetPreset, 1, 6, defaultConfig.exitTargetPreset);
+  return {
+    targetPreset,
+    lightsClearPasses: 0,
+    exitSequence: ["UserFirmwareModeOff", "RestoreDefaults", "PresetLoad"],
+    nrpnRestoreBeforePresetLoad: [
+      { param: NRPN.DEVICE_USER_FIRMWARE_MODE, value: 0, name: "UserFirmwareModeOff" },
+      { param: NRPN.GLOBAL_ROW_OFFSET, value: 5, name: "FourthsRowOffset" },
+      { param: NRPN.GLOBAL_SPLIT_ACTIVE, value: 0, name: "SplitOff" },
+      { param: NRPN.GLOBAL_SELECTED_SPLIT, value: 0, name: "SelectedSplitLeft" },
+      { param: NRPN.SPLIT_LEFT_OCTAVE, value: 5, name: "LeftOctaveDefault" },
+      { param: NRPN.SPLIT_LEFT_TRANSPOSE_PITCH, value: 7, name: "LeftTransposePitchDefault" },
+      { param: NRPN.SPLIT_LEFT_TRANSPOSE_LIGHTS, value: 7, name: "LeftTransposeLightsDefault" },
+      { param: NRPN.SPLIT_RIGHT_OCTAVE, value: 5, name: "RightOctaveDefault" },
+      { param: NRPN.SPLIT_RIGHT_TRANSPOSE_PITCH, value: 7, name: "RightTransposePitchDefault" },
+      { param: NRPN.SPLIT_RIGHT_TRANSPOSE_LIGHTS, value: 7, name: "RightTransposeLightsDefault" },
+      { param: NRPN.SPLIT_LEFT_BEND_RANGE, value: 48, name: "LeftBendRangeDefault" },
+      { param: NRPN.SPLIT_RIGHT_BEND_RANGE, value: 48, name: "RightBendRangeDefault" },
+      { param: NRPN.SPLIT_LEFT_MIDI_MODE, value: 1, name: "LeftMidiModeChannelPerNote" },
+      { param: NRPN.SPLIT_LEFT_MAIN_CHANNEL, value: 1, name: "LeftMainChannel1" },
+      { param: NRPN.SPLIT_LEFT_SEND_Z, value: 1, name: "LeftSendZOn" },
+      { param: NRPN.SPLIT_LEFT_MIDI_EXPRESSION_FOR_Z, value: 1, name: "LeftZChannelPressure" },
+    ],
+    nrpnPresetLoad: {
+      param: NRPN.GLOBAL_SETTINGS_PRESET_LOAD,
+      value: targetPreset - 1,
+      name: "GlobalSettingsPresetLoad",
+    },
+  };
+}
+
+function clampDelayMs(value, fallback, min = 0, max = 2000) {
+  const numeric = Number.parseInt(value, 10);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, numeric));
+}
+
+function getNrpnParamDelayMs(config = ext.config) {
+  const requested = clampDelayMs(config?.linnstrumentNrpnParamDelayMs, defaultConfig.linnstrumentNrpnParamDelayMs);
+  // On slower MIDI links (notably DIN), sub-30ms NRPN pacing can cause state misparsing.
+  return Math.max(30, requested);
+}
+
+function getLinnstrumentSyncOptions(config = ext.config) {
+  return {
+    paramDelayMs: getNrpnParamDelayMs(config),
+    applyControlModeToRightSplit: Boolean(config?.applyControlModeToRightSplit),
+  };
+}
+
 function getActiveLayoutRowOffset() {
   return getActiveLayoutRowOffsetCore(ext.config, defaultConfig);
 }
@@ -2169,30 +2368,6 @@ function markRecentLoopNoteOn(channel, noteNumber) {
 
 function wasRecentlyForwardedLoopNoteOn(channel, noteNumber, maxAgeMs = 30) {
   return wasRecentlyForwardedLoopNoteOnCore(ext.state.recentLoopNoteOns, channel, noteNumber, maxAgeMs);
-}
-
-function scalePitchBendForConfig(value14) {
-  // LinnStrument horizontal movement resolves to ~0.5 semitone per pad in the
-  // standard profile. Scale incoming bend so the selected layout profile
-  // (standard/mech) matches the configured semitones-per-pad target.
-  const desiredSemitonesPerPad = getActivePitchSlideSemitonesPerPad();
-  const nativeSemitonesPerPad = 0.5;
-  const factor = desiredSemitonesPerPad / nativeSemitonesPerPad;
-  return scalePitchBend14(value14, factor);
-}
-
-function getActivePitchSlideSemitonesPerPad() {
-  const isMech = ext.config.presetId === MIDIMECH_PRESET_ID;
-  if (isMech) {
-    return parsePitchSlideSetting(
-      ext.config.pitchSlideSemitonesPerPadMech,
-      defaultConfig.pitchSlideSemitonesPerPadMech,
-    );
-  }
-  return parsePitchSlideSetting(
-    ext.config.pitchSlideSemitonesPerPadStandard,
-    defaultConfig.pitchSlideSemitonesPerPadStandard,
-  );
 }
 
 function shouldForwardPitchBendOnChannel(channel) {
