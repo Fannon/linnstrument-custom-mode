@@ -50,6 +50,8 @@ const DEFAULT_NRPN_PARAM_DELAY_MS = 30;
 const STANDARD_LAYOUT_STAGE_DELAY_MS = 20;
 const STANDARD_LAYOUT_CRITICAL_RETRY_DELAY_MS = 40;
 const MIDI_LED_OFF = 7;
+const PRESET_LOAD_FIRMWARE_BOUNCE_DELAY_MS = 80;
+const PRESET_LOAD_RETRY_COUNT = 2;
 
 function clampDelayMs(value, fallback, min = 0, max = 2000) {
   const numeric = Number.parseInt(value, 10);
@@ -196,6 +198,30 @@ export async function applyLinnStrumentMpeInputMode(output, enabled, options = {
   await setLinnStrumentParamValue(output, NRPN.SPLIT_RIGHT_MIDI_EXPRESSION_FOR_Z, 0, timing);
 }
 
+export async function loadLinnStrumentPreset(output, presetNumber = 1, options = {}) {
+  const timing = resolveTimingOptions(options);
+  const bounceUserFirmware = options.bounceUserFirmware === true;
+  const retryCount = clampDelayMs(options.retryCount, PRESET_LOAD_RETRY_COUNT, 1, 4);
+  const normalizedPreset = clampDelayMs(presetNumber, 1, 1, 6);
+  const presetValue = normalizedPreset - 1;
+
+  if (bounceUserFirmware) {
+    // Force a full firmware-mode transition to reset display/layer state before preset load.
+    await setLinnStrumentParamValue(output, NRPN.DEVICE_USER_FIRMWARE_MODE, 1, timing);
+    await sleep(PRESET_LOAD_FIRMWARE_BOUNCE_DELAY_MS);
+    await setLinnStrumentParamValue(output, NRPN.DEVICE_USER_FIRMWARE_MODE, 0, timing);
+    await sleep(PRESET_LOAD_FIRMWARE_BOUNCE_DELAY_MS);
+  }
+
+  for (let attempt = 0; attempt < retryCount; attempt += 1) {
+    await setLinnStrumentParamValue(output, NRPN.GLOBAL_SETTINGS_PRESET_LOAD, presetValue, timing);
+    if (attempt + 1 < retryCount) {
+      // Slow links can occasionally drop one command under burst traffic.
+      await sleep(STANDARD_LAYOUT_CRITICAL_RETRY_DELAY_MS);
+    }
+  }
+}
+
 async function clearAllCustomLedCells(output, options = {}) {
   if (!output?.channels?.[1]) {
     return;
@@ -204,7 +230,7 @@ async function clearAllCustomLedCells(output, options = {}) {
 
   for (let y = 0; y < 8; y++) {
     for (let x = 0; x < 25; x++) {
-      output.channels[1].sendControlChange(20, x + 1);
+      output.channels[1].sendControlChange(20, x);
       output.channels[1].sendControlChange(21, y);
       output.channels[1].sendControlChange(22, MIDI_LED_OFF);
     }
@@ -212,63 +238,24 @@ async function clearAllCustomLedCells(output, options = {}) {
   }
 }
 
+export async function sweepLinnStrumentLightsOff(output, options = {}) {
+  await clearAllCustomLedCells(output, options);
+}
+
 export async function exitLinnStrument(output, targetPreset = 1, options = {}) {
   const timing = resolveTimingOptions(options);
+  const shouldSweepLights = options?.sweepLights === true;
 
-  // 1) Ensure normal firmware mode is active first.
+  // Optional explicit LED clear step (disabled by default for restore debugging).
+  if (shouldSweepLights) {
+    await clearAllCustomLedCells(output);
+    await sleep(STANDARD_LAYOUT_STAGE_DELAY_MS);
+  }
+
+  // Ensure normal firmware mode is active.
   await setLinnStrumentParamValue(output, NRPN.DEVICE_USER_FIRMWARE_MODE, 0, timing);
   await sleep(STANDARD_LAYOUT_STAGE_DELAY_MS);
 
-  // 2) Restore init-touched parameters to LinnStrument defaults.
-  await setLinnStrumentParamValue(output, NRPN.GLOBAL_ROW_OFFSET, FACTORY_DEFAULT_LAYOUT.GLOBAL_ROW_OFFSET, timing);
-  await setLinnStrumentParamValue(output, NRPN.GLOBAL_SPLIT_ACTIVE, 0, timing);
-  await setLinnStrumentParamValue(output, NRPN.GLOBAL_SELECTED_SPLIT, 0, timing);
-
-  // Left split transposition defaults (0, 0, 0 in UI terms).
-  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_OCTAVE, FACTORY_DEFAULT_LAYOUT.SPLIT_LEFT_OCTAVE, timing);
-  await setLinnStrumentParamValue(
-    output,
-    NRPN.SPLIT_LEFT_TRANSPOSE_PITCH,
-    FACTORY_DEFAULT_LAYOUT.SPLIT_LEFT_TRANSPOSE_PITCH,
-    timing,
-  );
-  await setLinnStrumentParamValue(
-    output,
-    NRPN.SPLIT_LEFT_TRANSPOSE_LIGHTS,
-    FACTORY_DEFAULT_LAYOUT.SPLIT_LEFT_TRANSPOSE_LIGHTS,
-    timing,
-  );
-
-  // Right split transposition defaults too (safety against selected-split drift).
-  await setLinnStrumentParamValue(output, NRPN.SPLIT_RIGHT_OCTAVE, FACTORY_DEFAULT_LAYOUT.SPLIT_LEFT_OCTAVE, timing);
-  await setLinnStrumentParamValue(
-    output,
-    NRPN.SPLIT_RIGHT_TRANSPOSE_PITCH,
-    FACTORY_DEFAULT_LAYOUT.SPLIT_LEFT_TRANSPOSE_PITCH,
-    timing,
-  );
-  await setLinnStrumentParamValue(
-    output,
-    NRPN.SPLIT_RIGHT_TRANSPOSE_LIGHTS,
-    FACTORY_DEFAULT_LAYOUT.SPLIT_LEFT_TRANSPOSE_LIGHTS,
-    timing,
-  );
-
-  // Reset bend range defaults on both splits.
-  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_BEND_RANGE, 48, timing);
-  await setLinnStrumentParamValue(output, NRPN.SPLIT_RIGHT_BEND_RANGE, 48, timing);
-
-  // Restore left split MIDI defaults (factory-like MPE baseline).
-  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_MIDI_MODE, 1, timing);
-  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_MAIN_CHANNEL, 1, timing);
-  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_SEND_Z, 1, timing);
-  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_MIDI_EXPRESSION_FOR_Z, 1, timing);
-  for (let param = NRPN.SPLIT_LEFT_PER_NOTE_CHANNEL_START; param <= NRPN.SPLIT_LEFT_PER_NOTE_CHANNEL_END; param++) {
-    const midiChannel = param - 1;
-    await setLinnStrumentParamValue(output, param, midiChannel >= 2 ? 1 : 0, timing);
-  }
-
-  // 3) Finally load user preset, which should overwrite remaining preset-scoped defaults.
-  const presetValue = Math.max(0, Math.min(5, targetPreset - 1));
-  await setLinnStrumentParamValue(output, NRPN.GLOBAL_SETTINGS_PRESET_LOAD, presetValue, timing);
+  // Finally load user preset (minimal isolation sequence).
+  await loadLinnStrumentPreset(output, targetPreset, { ...timing, bounceUserFirmware: false });
 }

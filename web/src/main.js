@@ -59,9 +59,14 @@ import {
   setLinnStrumentParamValue,
   applyLinnStrumentStandardLayout,
   applyLinnStrumentMpeInputMode,
-  exitLinnStrument,
+  sweepLinnStrumentLightsOff,
   sleep,
 } from "./instrument-sync.js";
+import {
+  SAFE_EXIT_NRPN_DELAY_MS,
+  CONTROL_MODE_CHANGED_NRPN_PARAMS,
+  createLinnstrumentDebugApi,
+} from "./linnstrument-debug-utils.js";
 const MODE_BY_ID = Object.fromEntries(MODES.map((mode) => [mode.id, mode]));
 
 const INSTRUMENT_COLORS = {
@@ -120,6 +125,7 @@ const AUTO_APPLY_RECONNECT_FIELD_IDS = new Set([
 
 const CONTROL_MODE_TRANSPOSE_PASSES = 2;
 const INIT_LAYOUT_SETTLE_DELAY_MS = 60;
+const NRPN_CC_NUMBERS = new Set([6, 38, 98, 99, 100, 101]);
 
 export const ext = {
   config: {},
@@ -151,6 +157,9 @@ export const ext = {
     lastPitchBend14ByChannel: new Map(),
     detectedChordName: "",
     instrumentPaintingEnabled: true,
+    suppressInstrumentNrpnCcForwarding: false,
+    startupSnapshot: null,
+    previous: null,
     exited: false,
   },
   fn: {},
@@ -159,6 +168,7 @@ window.ext = ext;
 let midiHotplugReconcileTimer = null;
 let midiHotplugReconcileInFlight = false;
 let midiHotplugReconcileQueued = false;
+let linnstrumentDebug = null;
 
 WebMidi.enable()
   .then(init)
@@ -173,6 +183,16 @@ WebMidi.enable()
 async function init() {
   const initStartedAtMs = performance.now();
   ext.config = initConfig();
+  linnstrumentDebug = createLinnstrumentDebugApi({
+    ext,
+    log,
+    defaultConfig,
+    isMpeModeEnabledCore,
+    isMpeModeEnabled,
+    getLinnstrumentSyncOptions,
+    initLayoutSettleDelayMs: INIT_LAYOUT_SETTLE_DELAY_MS,
+    sweepLinnStrumentLightsOff,
+  });
 
   console.log("[INIT SUMMARY] Startup requested", {
     startedAt: new Date().toISOString(),
@@ -193,24 +213,16 @@ async function init() {
   refreshPortSelectors({ autoSelectInstrument: shouldAutoSelectPorts() });
 
   await connectMidiFromConfig();
+  const startupStateCaptured = await linnstrumentDebug.capturePreviousLinnstrumentState("startup-before-init", {
+    params: CONTROL_MODE_CHANGED_NRPN_PARAMS,
+  });
   const standardLayoutApplied = await ensureLinnStrumentStandardLayout("startup");
   await sleep(INIT_LAYOUT_SETTLE_DELAY_MS);
   const mpeInputModeConfigured = await configureLinnStrumentMpeInputMode(isMpeModeEnabled(), "startup");
   await resendPitchBendRangeFromConfig({ includeLoop: false, source: "startup" });
   rebuildLayout();
 
-  ext.util = {
-    setOctave: async (octave) => {
-      if (!ext.midi.instrumentOutput) {
-        console.error("No instrument output connected.");
-        return;
-      }
-      // Value 5 is center (0). 0 is -5 octaves. 10 is +5 octaves.
-      const value = Math.max(0, Math.min(10, octave + 5));
-      console.log(`[util.setOctave] Setting octave to ${octave} (MIDI Value ${value})`);
-      await setLinnStrumentParamValue(ext.midi.instrumentOutput, NRPN.SPLIT_LEFT_OCTAVE, value, getLinnstrumentSyncOptions());
-    }
-  };
+  ext.util = linnstrumentDebug.createExtUtilApi();
 
   log.success("Prototype initialized.");
   log.info("Using LinnStrument standard input decoding.");
@@ -219,6 +231,7 @@ async function init() {
     instrumentOutputConnected: Boolean(ext.midi.instrumentOutput),
     standardLayoutApplied,
     mpeInputModeConfigured,
+    startupStateCaptured,
     linnstrument: buildStartupLinnstrumentParamSummary(ext.config),
   });
 }
@@ -291,16 +304,26 @@ function bindUi() {
 
     let restoreApplied = false;
     let restoreError = null;
+    let restoreMethod = "none";
     if (ext.midi.instrumentOutput) {
       try {
-        await exitLinnStrument(ext.midi.instrumentOutput, ext.config.exitTargetPreset, getLinnstrumentSyncOptions());
+        const requestedMpeEnabled = isMpeModeEnabled();
+        const baselineParams = linnstrumentDebug.buildKnownDefaultNrpnParamMap({ mpeEnabled: requestedMpeEnabled });
+        const baselineSnapshot = linnstrumentDebug.createSnapshotFromParamMap(
+          baselineParams,
+          "exit-known-default-profile",
+        );
+        const restoredCount = await linnstrumentDebug.restoreLinnStrumentStateSnapshot(baselineSnapshot, {
+          paramDelayMs: SAFE_EXIT_NRPN_DELAY_MS,
+        });
+        restoreMethod = "known-default-profile";
         restoreApplied = true;
         log.info(
-          `LinnStrument restored to default state (Preset ${ext.config.exitTargetPreset}, Fourths). App disconnected.`,
+          `LinnStrument restored ${restoredCount} known-default parameters (${SAFE_EXIT_NRPN_DELAY_MS}ms NRPN delay). App disconnected.`,
         );
       } catch (err) {
         restoreError = err?.message || String(err);
-        log.warn(`LinnStrument restore failed during exit: ${restoreError}`);
+        log.warn(`Known-default LinnStrument restore failed during exit: ${restoreError}`);
       }
     } else {
       log.warn("LinnStrument output not connected. Local state shut down.");
@@ -312,14 +335,15 @@ function bindUi() {
       durationMs: Math.round(performance.now() - exitStartedAtMs),
       instrumentOutputConnected: Boolean(ext.midi.instrumentOutput),
       restoreApplied,
+      restoreMethod,
       restoreError,
       linnstrument: exitSummary,
     });
 
-    // Update tooltip to show which preset was used (optional, but good for feedback)
+    // Update tooltip to summarize deterministic exit behavior.
     const exitBtn = document.getElementById("exitApp");
     if (exitBtn) {
-      exitBtn.title = `LinnStrument restored to Preset ${ext.config.exitTargetPreset}.`;
+      exitBtn.title = "Restores LinnStrument to a deterministic known-default baseline.";
     }
   });
 
@@ -1301,6 +1325,10 @@ function handleChannelAftertouch(msg) {
 function handleControlChange(msg) {
   const event = extractRawControlChangeEvent(msg);
   if (!event) {
+    return;
+  }
+
+  if (ext.state.suppressInstrumentNrpnCcForwarding && NRPN_CC_NUMBERS.has(event.controller)) {
     return;
   }
 
@@ -2298,34 +2326,16 @@ function buildStartupLinnstrumentParamSummary(config) {
 }
 
 function buildExitLinnstrumentParamSummary(config) {
-  const targetPreset = clampInt(config?.exitTargetPreset, 1, 6, defaultConfig.exitTargetPreset);
+  if (linnstrumentDebug) {
+    return linnstrumentDebug.buildExitLinnstrumentParamSummary(config);
+  }
   return {
-    targetPreset,
+    targetPreset: null,
     lightsClearPasses: 0,
-    exitSequence: ["UserFirmwareModeOff", "RestoreDefaults", "PresetLoad"],
-    nrpnRestoreBeforePresetLoad: [
-      { param: NRPN.DEVICE_USER_FIRMWARE_MODE, value: 0, name: "UserFirmwareModeOff" },
-      { param: NRPN.GLOBAL_ROW_OFFSET, value: 5, name: "FourthsRowOffset" },
-      { param: NRPN.GLOBAL_SPLIT_ACTIVE, value: 0, name: "SplitOff" },
-      { param: NRPN.GLOBAL_SELECTED_SPLIT, value: 0, name: "SelectedSplitLeft" },
-      { param: NRPN.SPLIT_LEFT_OCTAVE, value: 5, name: "LeftOctaveDefault" },
-      { param: NRPN.SPLIT_LEFT_TRANSPOSE_PITCH, value: 7, name: "LeftTransposePitchDefault" },
-      { param: NRPN.SPLIT_LEFT_TRANSPOSE_LIGHTS, value: 7, name: "LeftTransposeLightsDefault" },
-      { param: NRPN.SPLIT_RIGHT_OCTAVE, value: 5, name: "RightOctaveDefault" },
-      { param: NRPN.SPLIT_RIGHT_TRANSPOSE_PITCH, value: 7, name: "RightTransposePitchDefault" },
-      { param: NRPN.SPLIT_RIGHT_TRANSPOSE_LIGHTS, value: 7, name: "RightTransposeLightsDefault" },
-      { param: NRPN.SPLIT_LEFT_BEND_RANGE, value: 48, name: "LeftBendRangeDefault" },
-      { param: NRPN.SPLIT_RIGHT_BEND_RANGE, value: 48, name: "RightBendRangeDefault" },
-      { param: NRPN.SPLIT_LEFT_MIDI_MODE, value: 1, name: "LeftMidiModeChannelPerNote" },
-      { param: NRPN.SPLIT_LEFT_MAIN_CHANNEL, value: 1, name: "LeftMainChannel1" },
-      { param: NRPN.SPLIT_LEFT_SEND_Z, value: 1, name: "LeftSendZOn" },
-      { param: NRPN.SPLIT_LEFT_MIDI_EXPRESSION_FOR_Z, value: 1, name: "LeftZChannelPressure" },
-    ],
-    nrpnPresetLoad: {
-      param: NRPN.GLOBAL_SETTINGS_PRESET_LOAD,
-      value: targetPreset - 1,
-      name: "GlobalSettingsPresetLoad",
-    },
+    restoreParamCount: 0,
+    restoreTimingMs: SAFE_EXIT_NRPN_DELAY_MS,
+    exitSequence: ["RestoreKnownDefaultProfileOnly"],
+    nrpnRestoreProfile: {},
   };
 }
 

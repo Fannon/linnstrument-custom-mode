@@ -48,7 +48,7 @@
           <select id="loopInputPort" class="form-select"></select>
         </div>
         <div class="button-row">
-          <button id="exitApp" type="button" class="btn btn-outline-warning btn-sm" title="Restores LinnStrument to normal mode and loads the selected user preset.">Exit &amp; Restore</button>
+          <button id="exitApp" type="button" class="btn btn-outline-warning btn-sm" title="Restores LinnStrument to a deterministic known-default baseline.">Exit &amp; Restore</button>
           <button id="resetConfig" type="button" class="btn btn-outline-danger btn-sm" title="Resets app settings to defaults.">Reset Defaults</button>
         </div>
         <div class="connection-routing" aria-live="polite">
@@ -243,7 +243,7 @@
               </select>
             </div>
             <div class="advanced-option">
-              <label for="exitTargetPreset">Restore Preset on Exit</label>
+              <label for="exitTargetPreset">Restore Preset on Exit (unused in baseline restore mode)</label>
               <select id="exitTargetPreset" class="form-select">
                 <option value="1">Preset 1</option>
                 <option value="2">Preset 2</option>
