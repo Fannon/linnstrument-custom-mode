@@ -57,7 +57,6 @@ import {
 import {
   NRPN,
   CONTROL_MODE_LAYOUT,
-  setLinnStrumentParamValue as setLinnStrumentParamValueCore,
   applyLinnStrumentStandardLayout,
   applyLinnStrumentMpeInputMode,
   exitLinnStrument,
@@ -963,6 +962,11 @@ function handleNoteOn(msg) {
     handleNoteOff(msg);
     return;
   }
+  
+  // Debug log for every instrument note-on to identify the bottom-left pad note
+  if (raw && msg?.__inputSource === "instrument") {
+    console.log(`[MIDI DEBUG] Instrument NoteOn: Note=${raw.noteNumber}, Channel=${raw.channel}, Velocity=${raw.velocity}`);
+  }
 
   if (DEBUG_MIDI_FLOW && raw) {
     const line = `[rx noteon] src=${msg?.__inputSource || "unknown"} ch=${raw.channel} note=${raw.noteNumber} vel=${raw.velocity}`;
@@ -1401,6 +1405,9 @@ function normalizeOverlayTriggerEvent(msg, options = {}) {
   }
 
   const resolvedCoord = resolvePadCoord(raw.noteNumber, raw.channel);
+  
+  // Extra detailed log for overlay trigger debugging
+  console.log(`[OVERLAY DEBUG] Probe: Note=${raw.noteNumber}, Channel=${raw.channel}, ResolvedCoord=${resolvedCoord}, TriggerTarget=${CONTROL_OVERLAY_TRIGGER_COORD}`);
 
   if (debug) {
     debugControlOverlay(`${phase}:probe`, {
@@ -1643,7 +1650,7 @@ function refreshInstrumentSameOutputNoteHighlights(noteNumber) {
   }
 
   const activeCoordsForNote = new Set(
-    Array.from(ext.state.routedNotesByPad.entries())
+    Array.from(ext.state.routedNotesByPad.values())
       .filter(([_coord, routed]) => routed.note === noteNumber)
       .map(([coord]) => coord),
   );
@@ -2071,21 +2078,15 @@ function highlightInstrumentHardwareXY(x, y, color) {
   }
 }
 
-async function setLinnStrumentParamValue(paramNumber, value) {
-  await setLinnStrumentParamValueCore(ext.midi.instrumentOutput, paramNumber, value);
-}
-
 async function ensureLinnStrumentStandardLayout(reason = "startup") {
   if (!ext.midi.instrumentOutput) {
     return false;
   }
   try {
     // Enforce a deterministic physical note map for pad decoding:
-    // - User Firmware OFF
-    // - Split OFF (single full-width surface)
-    // - Row Offset = No overlap
     // - Zero split pitch transposition
     console.log(`[INIT DEBUG] Applying Control Mode Layout: Octave=${CONTROL_MODE_LAYOUT.SPLIT_LEFT_OCTAVE}, Transpose=${CONTROL_MODE_LAYOUT.SPLIT_LEFT_TRANSPOSE_PITCH}, Lights=${CONTROL_MODE_LAYOUT.SPLIT_LEFT_TRANSPOSE_LIGHTS}`);
+    await sleep(200); // 200ms breath to ensure hardware is ready
     await applyLinnStrumentStandardLayout(ext.midi.instrumentOutput);
     if (ext.config.deviceStartNote !== CONTROL_MODE_LAYOUT.DEVICE_START_NOTE) {
       ext.config.deviceStartNote = CONTROL_MODE_LAYOUT.DEVICE_START_NOTE;

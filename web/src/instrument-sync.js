@@ -18,9 +18,9 @@ export const NRPN = {
 
 export const CONTROL_MODE_LAYOUT = {
   DEVICE_START_NOTE: 0,
-  SPLIT_LEFT_OCTAVE: 2, // -3 Octaves (required to map bottom-left pad to MIDI note 0)
+  SPLIT_LEFT_OCTAVE: 2, // -3 Octaves
   SPLIT_LEFT_TRANSPOSE_PITCH: 7, // 0 Pitch Transpose
-  SPLIT_LEFT_TRANSPOSE_LIGHTS: 0, // -6 Light Transpose
+  SPLIT_LEFT_TRANSPOSE_LIGHTS: 1, // -6 Light Transpose
 };
 
 export const FACTORY_DEFAULT_LAYOUT = {
@@ -38,12 +38,12 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function setLinnStrumentParamValue(output, paramNumber, value, sleepMs = 24) {
-  if (!output) {
-    throw new Error("Missing LinnStrument output");
-  }
-  output.sendNrpnValue(nrpn(paramNumber), nrpn(value), { channels: 1 });
-  await sleep(sleepMs);
+export async function setLinnStrumentParamValue(output, paramNumber, value) {
+  if (!output) return;
+  // WebMidi.js sendNrpnValue expects raw 14-bit integers for parameter and value
+  console.log(`[MIDI TX DEBUG] NRPN Param=${paramNumber}, Value=${value}`);
+  output.sendNrpnValue(paramNumber, value, { channels: 1 });
+  await sleep(30); // Increased throttle for hardware stability
 }
 
 export async function applyLinnStrumentStandardLayout(output) {
