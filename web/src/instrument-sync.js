@@ -12,6 +12,7 @@ export const NRPN = {
   GLOBAL_SPLIT_ACTIVE: 200,
   GLOBAL_ROW_OFFSET: 227,
   DEVICE_USER_FIRMWARE_MODE: 245,
+  CURRENT_PRESET: 221,
 };
 
 export const STANDARD_LAYOUT = {
@@ -65,4 +66,31 @@ export async function applyLinnStrumentMpeInputMode(output, enabled) {
   await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_SEND_Z, 1);
   // In non-MPE mode, route Z to poly aftertouch for key-independent pressure.
   await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_MIDI_EXPRESSION_FOR_Z, 0);
+}
+
+export async function exitLinnStrument(output) {
+  // 1. Ensure User Firmware is OFF first
+  await setLinnStrumentParamValue(output, NRPN.DEVICE_USER_FIRMWARE_MODE, 0);
+  
+  // 2. Clear all User LEDs (CC 122)
+  if (output && output.channels && output.channels[1]) {
+    output.channels[1].sendControlChange(122, 0);
+  }
+  await sleep(60);
+
+  // 3. Set Row Offset to default Fourths (value 5)
+  await setLinnStrumentParamValue(output, NRPN.GLOBAL_ROW_OFFSET, 5);
+  
+  // 4. Ensure Split is OFF
+  await setLinnStrumentParamValue(output, NRPN.GLOBAL_SPLIT_ACTIVE, 0);
+
+  // 5. Reset Pitch Bend Range to 2 semitones (Standard)
+  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_BEND_RANGE, 2);
+
+  // 6. Reset MIDI Mode to Multi-channel (MPE style, default)
+  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_MIDI_MODE, 1);
+  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_MAIN_CHANNEL, 1);
+
+  // 7. Last, Restore to Preset 1 (value 0)
+  await setLinnStrumentParamValue(output, NRPN.CURRENT_PRESET, 0);
 }

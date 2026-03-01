@@ -60,6 +60,7 @@ import {
   setLinnStrumentParamValue as setLinnStrumentParamValueCore,
   applyLinnStrumentStandardLayout,
   applyLinnStrumentMpeInputMode,
+  exitLinnStrument,
 } from "./instrument-sync.js";
 const MODE_BY_ID = Object.fromEntries(MODES.map((mode) => [mode.id, mode]));
 
@@ -145,6 +146,7 @@ export const ext = {
     lastPitchBend14ByChannel: new Map(),
     detectedChordName: "",
     instrumentPaintingEnabled: true,
+    exited: false,
   },
   fn: {},
 };
@@ -230,26 +232,25 @@ async function reconcileMidiAfterHotplug(trigger) {
   }
 }
 
-async function rescanMidiPortsAndReconnect() {
-  try {
-    if (typeof WebMidi?.disable === "function") {
-      WebMidi.disable();
-    }
-    if (typeof WebMidi?.enable === "function") {
-      await WebMidi.enable();
-    }
-  } catch (err) {
-    log.warn(`MIDI rescan fallback: ${err?.message || err}`);
-  }
 
-  refreshPortSelectors({ autoSelectInstrument: shouldAutoSelectPorts() });
-  await connectMidiFromConfig();
-  updateRoutingStatus();
-}
 
 function bindUi() {
-  document.getElementById("refreshPorts")?.addEventListener("click", async () => {
-    await rescanMidiPortsAndReconnect();
+  document.getElementById("exitApp")?.addEventListener("click", async () => {
+    ext.state.exited = true;
+    ext.state.instrumentPaintingEnabled = false;
+
+    // Stop listening to hardware to avoid further calculations/repaints
+    detachInstrumentInputListeners();
+    detachLoopInputListeners();
+    
+    if (ext.midi.instrumentOutput) {
+      await exitLinnStrument(ext.midi.instrumentOutput);
+      log.info("LinnStrument restored to default state (Preset 1, Fourths). App disconnected.");
+    } else {
+      log.warn("LinnStrument output not connected. Local state shut down.");
+    }
+    
+    updateRoutingStatus();
   });
 
   bindAutoApplyConfigFields();
@@ -559,6 +560,9 @@ function autoSelectLinnStrumentPorts() {
 }
 
 async function connectMidiFromConfig() {
+  if (ext.state.exited) {
+    return;
+  }
   readConfigFromUi();
   detachInstrumentInputListeners();
   detachLoopInputListeners();
@@ -651,6 +655,9 @@ function attachLoopInputListeners(input) {
 }
 
 function rebuildLayout(options = {}) {
+  if (ext.state.exited) {
+    return;
+  }
   const { paintInstrument = true, preserveHeldState = false } = options;
   if (!preserveHeldState) {
     clearHeldState();
@@ -1806,6 +1813,9 @@ function setLoopPitchBendRangeSemitones(semitones = defaultConfig.outputPitchBen
 }
 
 async function resendPitchBendRangeFromConfig({ includeLoop = false, source = "unspecified" } = {}) {
+  if (ext.state.exited) {
+    return;
+  }
   const semitones = clampInt(
     ext.config.outputPitchBendRangeSemitones,
     0,
@@ -1909,6 +1919,16 @@ function updateStatusUi() {
 }
 
 function updateRoutingStatus() {
+  if (ext.state.exited) {
+    const statusEl = document.getElementById("routingStatus");
+    if (statusEl) {
+      statusEl.textContent = "Exited / Restored";
+      statusEl.classList.remove("routing-ready");
+      statusEl.classList.add("routing-not-ready");
+    }
+    return;
+  }
+
   const inOk = Boolean(ext.midi.instrumentInput);
   const outOk = Boolean(ext.midi.loopOutput);
   const ready = inOk && outOk;
@@ -1934,6 +1954,9 @@ function updateChordStatusUi() {
 }
 
 function paintInstrumentLayout() {
+  if (ext.state.exited || !ext.state.instrumentPaintingEnabled) {
+    return;
+  }
   const out = ext.midi.instrumentOutput;
   if (!out) {
     return;

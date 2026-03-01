@@ -282,6 +282,21 @@ body {
 
 #visualization {
   overflow-x: auto;
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.exit-message {
+  padding: 40px;
+  background: white;
+  border: 1px dashed var(--line);
+  color: var(--accent-2);
+  border-radius: 12px;
+  font-weight: bold;
+  font-size: 1.2rem;
+  box-shadow: var(--shadow);
 }
 
 .surface-row {
