@@ -72,11 +72,19 @@ export async function exitLinnStrument(output) {
   // 1. Ensure User Firmware is OFF first
   await setLinnStrumentParamValue(output, NRPN.DEVICE_USER_FIRMWARE_MODE, 0);
   
-  // 2. Clear all User LEDs (CC 122)
-  if (output && output.channels && output.channels[1]) {
-    output.channels[1].sendControlChange(122, 0);
+  // 2. Clear all User LEDs individually (CC 20, 21, 22)
+  // This is slower but more reliable than a single CC 122 command.
+  if (output?.channels?.[1]) {
+    for (let y = 0; y < 8; y++) {
+      for (let x = 0; x < 25; x++) {
+        output.channels[1].sendControlChange(20, x + 1);
+        output.channels[1].sendControlChange(21, y);
+        output.channels[1].sendControlChange(22, 0);
+      }
+      await sleep(2); // Small breath between rows to avoid buffer overflow
+    }
   }
-  await sleep(60);
+  await sleep(64); // Final pause before NRPNs
 
   // 3. Set Row Offset to default Fourths (value 5)
   await setLinnStrumentParamValue(output, NRPN.GLOBAL_ROW_OFFSET, 5);
@@ -84,13 +92,17 @@ export async function exitLinnStrument(output) {
   // 4. Ensure Split is OFF
   await setLinnStrumentParamValue(output, NRPN.GLOBAL_SPLIT_ACTIVE, 0);
 
-  // 5. Reset Pitch Bend Range to 2 semitones (Standard)
-  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_BEND_RANGE, 2);
+  // 5. Reset Octave and Transpose to factory defaults (5 and 7 are 'center' in firmware)
+  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_OCTAVE, 5);
+  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_TRANSPOSE_PITCH, 7);
 
-  // 6. Reset MIDI Mode to Multi-channel (MPE style, default)
+  // 6. Reset Pitch Bend Range to 48 semitones (MPE Standard default used by midimech)
+  await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_BEND_RANGE, 48);
+
+  // 7. Reset MIDI Mode to Multi-channel (MPE style, default)
   await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_MIDI_MODE, 1);
   await setLinnStrumentParamValue(output, NRPN.SPLIT_LEFT_MAIN_CHANNEL, 1);
 
-  // 7. Last, Restore to Preset 1 (value 0)
+  // 8. Last, Restore to Preset 1 (value 0)
   await setLinnStrumentParamValue(output, NRPN.CURRENT_PRESET, 0);
 }
