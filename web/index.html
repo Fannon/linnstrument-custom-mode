@@ -22,7 +22,7 @@
     <header class="app-header">
       <div>
         <!-- <p class="eyebrow">LinnStrument</p> -->
-        <h1>LinnStrument Custom Mode <small class="text-muted">Prototype</small></h1>
+        <h1>LinnStrument <span id="header-suffix">Custom Mode</span></h1>
         <p class="lede">Preset-based scale layout router for LinnStrument</p>
       </div>
       <div class="header-links">
@@ -32,34 +32,122 @@
     </header>
 
     <main class="layout-grid">
-      <section class="panel control-panel">
-        <h2>Connections</h2>
-        <div class="field-grid">
-          <label for="instrumentInputPort">LinnStrument Input</label>
-          <select id="instrumentInputPort" class="form-select"></select>
+      <section class="panel control-panel" aria-label="Standard options">
+        <section class="standard-options-actions" aria-label="Standard app actions">
+          <span class="standard-options-actions-label">Standard Options</span>
+          <button id="exitApp" type="button" class="btn btn-warning btn-sm" title="Restores LinnStrument to a deterministic known-default baseline.">Exit &amp; Restore</button>
+          <button id="resetConfig" type="button" class="btn btn-danger btn-sm" title="Resets app settings to defaults.">Reset Defaults</button>
+          <button id="panic" type="button" class="btn btn-outline-warning btn-sm">All Notes Off</button>
+        </section>
+        <div class="standard-options-grid">
+          <section class="standard-options-section" aria-label="Connection options">
+            <h3>Connections</h3>
+            <div class="field-grid">
+              <label for="instrumentInputPort">LinnStrument Input</label>
+              <select id="instrumentInputPort" class="form-select"></select>
 
-          <label for="instrumentOutputPort">LinnStrument Output</label>
-          <select id="instrumentOutputPort" class="form-select"></select>
+              <label for="instrumentOutputPort">LinnStrument Output</label>
+              <select id="instrumentOutputPort" class="form-select"></select>
 
-          <label for="loopOutputPort">MIDI Loop Output</label>
-          <select id="loopOutputPort" class="form-select"></select>
+              <label for="loopOutputPort">MIDI Loop Output</label>
+              <select id="loopOutputPort" class="form-select"></select>
 
-          <label for="loopInputPort">Lightguide Input</label>
-          <select id="loopInputPort" class="form-select"></select>
-        </div>
-        <div class="button-row">
-          <button id="exitApp" type="button" class="btn btn-outline-warning btn-sm" title="Restores LinnStrument to a deterministic known-default baseline.">Exit &amp; Restore</button>
-          <button id="resetConfig" type="button" class="btn btn-outline-danger btn-sm" title="Resets app settings to defaults.">Reset Defaults</button>
-        </div>
-        <div class="connection-routing" aria-live="polite">
-          <span class="connection-routing-label">Routing</span>
-          <strong id="routingStatus" class="routing-not-ready">Not connected</strong>
-        </div>
+              <label for="loopInputPort">Lightguide Input</label>
+              <select id="loopInputPort" class="form-select"></select>
+            </div>
+            <div class="connection-routing" aria-live="polite">
+              <span class="connection-routing-label">Routing</span>
+              <strong id="routingStatus" class="routing-not-ready">Not connected</strong>
+            </div>
+          </section>
 
-        <h2>Preset</h2>
-        <div class="field-grid">
-          <label for="presetSelect">Preset Layout</label>
-          <select id="presetSelect" class="form-select"></select>
+          <section class="standard-options-section" aria-label="Preset options">
+            <h3>Preset</h3>
+            <div class="field-grid">
+              <label for="presetSelect">Preset Layout</label>
+              <select id="presetSelect" class="form-select"></select>
+            </div>
+          </section>
+
+          <section class="standard-options-section" aria-label="Layout options">
+            <h3>Layout</h3>
+            <div class="field-grid">
+              <label for="layoutRowOffsetScale">Scale Mode - Row Offset</label>
+              <input id="layoutRowOffsetScale" class="form-control" type="number" min="1" max="12" step="1">
+
+              <label for="layoutRowOffsetAllNotes">All Notes Mode - Row Offset</label>
+              <input id="layoutRowOffsetAllNotes" class="form-control" type="number" min="1" max="12" step="1">
+            </div>
+          </section>
+
+          <section class="standard-options-section" aria-label="Color options">
+            <h3>Colors</h3>
+            <div class="field-grid">
+              <label for="colorModWheel">Color Mod Wheel Bar</label>
+              <select id="colorModWheel" class="form-select">
+                <option value="0">(none / off)</option>
+                <option value="1">Red</option>
+                <option value="2">Yellow</option>
+                <option value="3">Green</option>
+                <option value="4">Cyan</option>
+                <option value="5">Blue</option>
+                <option value="6">Magenta</option>
+                <option value="7">Black</option>
+                <option value="8">White</option>
+                <option value="9">Orange</option>
+                <option value="10">Lime</option>
+                <option value="11">Pink</option>
+              </select>
+
+              <label for="colorRootNote">Color Root Note</label>
+              <select id="colorRootNote" class="form-select">
+                <option value="0">(none / off)</option>
+                <option value="1">Red</option>
+                <option value="2">Yellow</option>
+                <option value="3">Green</option>
+                <option value="4">Cyan</option>
+                <option value="5">Blue</option>
+                <option value="6">Magenta</option>
+                <option value="7">Black</option>
+                <option value="8">White</option>
+                <option value="9">Orange</option>
+                <option value="10">Lime</option>
+                <option value="11">Pink</option>
+              </select>
+
+              <label for="colorScaleNote">Color Scale Note</label>
+              <select id="colorScaleNote" class="form-select">
+                <option value="0">(none / off)</option>
+                <option value="1">Red</option>
+                <option value="2">Yellow</option>
+                <option value="3">Green</option>
+                <option value="4">Cyan</option>
+                <option value="5">Blue</option>
+                <option value="6">Magenta</option>
+                <option value="7">Black</option>
+                <option value="8">White</option>
+                <option value="9">Orange</option>
+                <option value="10">Lime</option>
+                <option value="11">Pink</option>
+              </select>
+
+              <label for="colorNonScaleNote">Color Non-Scale Note</label>
+              <select id="colorNonScaleNote" class="form-select">
+                <option value="0">(none / off)</option>
+                <option value="1">Red</option>
+                <option value="2">Yellow</option>
+                <option value="3">Green</option>
+                <option value="4">Cyan</option>
+                <option value="5">Blue</option>
+                <option value="6">Magenta</option>
+                <option value="7">Black</option>
+                <option value="8">White</option>
+                <option value="9">Orange</option>
+                <option value="10">Lime</option>
+                <option value="11">Pink</option>
+              </select>
+            </div>
+          </section>
         </div>
         <div hidden>
           <h2>Device Mapping</h2>
@@ -127,7 +215,10 @@
       </section>
 
       <section class="panel advanced-panel" aria-label="Advanced settings">
-          <h2>Advanced Settings</h2>
+          <section class="standard-options-actions" aria-label="Advanced actions">
+            <span class="standard-options-actions-label">Advanced Options</span>
+            <button id="resendPbRange" type="button" class="btn btn-outline-secondary btn-sm">Resend PB Range</button>
+          </section>
           <div class="advanced-options-grid">
             <div class="advanced-option">
               <label for="outputPitchBendRangeSemitones" title="Pitch bend range used on output channels (RPN 0).">Pitch Bend Range</label>
@@ -158,115 +249,14 @@
                 <option value="2">1 pad = 2 semitones</option>
               </select>
             </div>
-
-
-
-            <div class="advanced-option">
-              <label for="layoutRowOffsetScale">Scale Mode - Row Offset</label>
-              <input id="layoutRowOffsetScale" class="form-control" type="number" min="1" max="12" step="1">
-            </div>
-
-            <div class="advanced-option">
-              <label for="layoutRowOffsetAllNotes">All Notes Mode - Row Offset</label>
-              <input id="layoutRowOffsetAllNotes" class="form-control" type="number" min="1" max="12" step="1">
-            </div>
-
-            <div class="advanced-option">
-              <label for="colorModWheel">Color Mod Wheel Bar</label>
-              <select id="colorModWheel" class="form-select">
-                <option value="0">(none / off)</option>
-                <option value="1">Red</option>
-                <option value="2">Yellow</option>
-                <option value="3">Green</option>
-                <option value="4">Cyan</option>
-                <option value="5">Blue</option>
-                <option value="6">Magenta</option>
-                <option value="7">Black</option>
-                <option value="8">White</option>
-                <option value="9">Orange</option>
-                <option value="10">Lime</option>
-                <option value="11">Pink</option>
-              </select>
-            </div>
-
-            <div class="advanced-option">
-              <label for="colorRootNote">Color Root Note</label>
-              <select id="colorRootNote" class="form-select">
-                <option value="0">(none / off)</option>
-                <option value="1">Red</option>
-                <option value="2">Yellow</option>
-                <option value="3">Green</option>
-                <option value="4">Cyan</option>
-                <option value="5">Blue</option>
-                <option value="6">Magenta</option>
-                <option value="7">Black</option>
-                <option value="8">White</option>
-                <option value="9">Orange</option>
-                <option value="10">Lime</option>
-                <option value="11">Pink</option>
-              </select>
-            </div>
-
-            <div class="advanced-option">
-              <label for="colorScaleNote">Color Scale Note</label>
-              <select id="colorScaleNote" class="form-select">
-                <option value="0">(none / off)</option>
-                <option value="1">Red</option>
-                <option value="2">Yellow</option>
-                <option value="3">Green</option>
-                <option value="4">Cyan</option>
-                <option value="5">Blue</option>
-                <option value="6">Magenta</option>
-                <option value="7">Black</option>
-                <option value="8">White</option>
-                <option value="9">Orange</option>
-                <option value="10">Lime</option>
-                <option value="11">Pink</option>
-              </select>
-            </div>
-
-            <div class="advanced-option">
-              <label for="colorNonScaleNote">Color Non-Scale Note</label>
-              <select id="colorNonScaleNote" class="form-select">
-                <option value="0">(none / off)</option>
-                <option value="1">Red</option>
-                <option value="2">Yellow</option>
-                <option value="3">Green</option>
-                <option value="4">Cyan</option>
-                <option value="5">Blue</option>
-                <option value="6">Magenta</option>
-                <option value="7">Black</option>
-                <option value="8">White</option>
-                <option value="9">Orange</option>
-                <option value="10">Lime</option>
-                <option value="11">Pink</option>
-              </select>
-            </div>
-            <div class="advanced-option">
-              <label for="exitTargetPreset">Restore Preset on Exit (unused in baseline restore mode)</label>
-              <select id="exitTargetPreset" class="form-select">
-                <option value="1">Preset 1</option>
-                <option value="2">Preset 2</option>
-                <option value="3">Preset 3</option>
-                <option value="4">Preset 4</option>
-                <option value="5">Preset 5</option>
-                <option value="6">Preset 6</option>
-              </select>
-            </div>
-
-          </div>
-
-          <div class="button-row">
-            <button id="resendPbRange" type="button" class="btn btn-outline-secondary btn-sm">Resend PB Range</button>
-            <button id="panic" type="button" class="btn btn-outline-warning btn-sm">All Notes Off</button>
           </div>
       </section>
 
       <section class="panel log-panel">
-        <div class="log-header">
-          <h2>Log</h2>
+        <section class="standard-options-actions" aria-label="Log actions">
+          <span class="standard-options-actions-label">Log</span>
           <button id="clearLog" type="button" class="btn btn-outline-secondary btn-sm">Clear</button>
-        </div>
+        </section>
         <div id="log"></div>
       </section>
     </main>

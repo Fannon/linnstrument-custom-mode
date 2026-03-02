@@ -34,6 +34,7 @@
   --zone-disabled: #ece7dc;
   --zone-active: #1c6e63;
   --zone-active-text: #f7fff9;
+  --header-suffix: #1b9fb5;
 }
 
 * {
@@ -51,9 +52,9 @@ body {
 }
 
 .page-shell {
-  max-width: 1400px;
+  max-width: 1260px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 12px 24px;
 }
 
 .app-header {
@@ -61,7 +62,7 @@ body {
   justify-content: space-between;
   gap: 16px;
   align-items: flex-start;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
 }
 
 .eyebrow {
@@ -78,8 +79,12 @@ body {
   line-height: 1.05;
 }
 
+#header-suffix {
+  color: var(--header-suffix);
+}
+
 .lede {
-  margin: 8px 0 0;
+  margin: 4px 0 0;
   color: var(--muted);
   max-width: 56ch;
 }
@@ -99,11 +104,12 @@ body {
 
 .layout-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   grid-template-areas:
-    "controls surface"
-    "advanced advanced"
-    "log log";
+    "surface"
+    "controls"
+    "advanced"
+    "log";
   gap: 18px;
   align-items: start;
 }
@@ -126,8 +132,52 @@ body {
   font-weight: 700;
 }
 
-.control-panel h2:not(:first-child) {
-  margin-top: 18px;
+.control-panel h3 {
+  margin: 14px 0 8px;
+  font-size: 0.86rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.standard-options-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.standard-options-actions {
+  margin-bottom: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.65);
+  padding: 10px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.standard-options-actions-label {
+  margin-right: auto;
+  align-self: center;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.9rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.standard-options-section {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.standard-options-section h3 {
+  margin-top: 0;
 }
 
 .field-grid {
@@ -281,7 +331,25 @@ body {
 }
 
 #visualization {
+  width: 100%;
   overflow-x: auto;
+  min-height: 320px;
+}
+
+#visualization:empty {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.65);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+#visualization:empty::before {
+  content: "Loading / Initializing LinnStrument";
+  color: var(--muted);
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
 }
 
 .surface-row {
@@ -577,9 +645,15 @@ body {
 @media (max-width: 1080px) {
   .layout-grid {
     grid-template-columns: 1fr;
+    grid-template-areas:
+      "surface"
+      "controls"
+      "advanced"
+      "log";
   }
 
   .surface-panel,
+  .control-panel,
   .advanced-panel,
   .log-panel {
     grid-column: auto;
@@ -613,5 +687,15 @@ body {
 
   .button-row .btn {
     flex: 1 1 auto;
+  }
+
+  .standard-options-actions .btn {
+    flex: 1 1 auto;
+  }
+
+  .standard-options-actions-label {
+    width: 100%;
+    margin-right: 0;
+    text-align: left;
   }
 }

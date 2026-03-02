@@ -49,7 +49,7 @@ export function sleep(ms) {
 const DEFAULT_NRPN_PARAM_DELAY_MS = 30;
 const STANDARD_LAYOUT_STAGE_DELAY_MS = 20;
 const STANDARD_LAYOUT_CRITICAL_RETRY_DELAY_MS = 40;
-const MIDI_LED_OFF = 7;
+const MIDI_LED_BLACK = 7;
 const PRESET_LOAD_FIRMWARE_BOUNCE_DELAY_MS = 80;
 const PRESET_LOAD_RETRY_COUNT = 2;
 
@@ -66,6 +66,14 @@ function resolveTimingOptions(options = {}) {
     paramDelayMs: clampDelayMs(options.paramDelayMs, DEFAULT_NRPN_PARAM_DELAY_MS),
     applyControlModeToRightSplit: Boolean(options.applyControlModeToRightSplit),
   };
+}
+
+function clampMidi7(value, fallback = 0) {
+  const numeric = Number.parseInt(value, 10);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return Math.min(127, Math.max(0, numeric));
 }
 
 export async function setLinnStrumentParamValue(output, paramNumber, value, options = {}) {
@@ -133,8 +141,8 @@ async function applyControlModeTransposeTriplet(output, split = "left", timing =
 export async function applyLinnStrumentStandardLayout(output, options = {}) {
   const timing = resolveTimingOptions(options);
 
-  // First step on init: clear custom LED layers so startup always begins from a dark surface.
-  await clearAllCustomLedCells(output, { rowDelayMs: 1 });
+  // First step on init: visibly sweep existing LED layers to black before applying control-mode params.
+  await clearLedCells(output, { rowDelayMs: 8, ledColor: MIDI_LED_BLACK });
 
   await setLinnStrumentParamValue(output, NRPN.DEVICE_USER_FIRMWARE_MODE, 0, timing);
   await sleep(STANDARD_LAYOUT_STAGE_DELAY_MS);
@@ -222,24 +230,26 @@ export async function loadLinnStrumentPreset(output, presetNumber = 1, options =
   }
 }
 
-async function clearAllCustomLedCells(output, options = {}) {
+async function clearLedCells(output, options = {}) {
   if (!output?.channels?.[1]) {
     return;
   }
   const rowDelayMs = clampDelayMs(options.rowDelayMs, 2, 0, 100);
+  const ledColor = clampMidi7(options.ledColor, MIDI_LED_BLACK);
 
   for (let y = 0; y < 8; y++) {
-    for (let x = 0; x < 25; x++) {
+    // Preserve LinnStrument's dedicated left control strip (x=0).
+    for (let x = 1; x < 25; x++) {
       output.channels[1].sendControlChange(20, x);
       output.channels[1].sendControlChange(21, y);
-      output.channels[1].sendControlChange(22, MIDI_LED_OFF);
+      output.channels[1].sendControlChange(22, ledColor);
     }
     await sleep(rowDelayMs); // Small breath between rows to avoid buffer overflow
   }
 }
 
 export async function sweepLinnStrumentLightsOff(output, options = {}) {
-  await clearAllCustomLedCells(output, options);
+  await clearLedCells(output, options);
 }
 
 export async function exitLinnStrument(output, targetPreset = 1, options = {}) {
@@ -248,7 +258,7 @@ export async function exitLinnStrument(output, targetPreset = 1, options = {}) {
 
   // Optional explicit LED clear step (disabled by default for restore debugging).
   if (shouldSweepLights) {
-    await clearAllCustomLedCells(output);
+    await clearLedCells(output);
     await sleep(STANDARD_LAYOUT_STAGE_DELAY_MS);
   }
 

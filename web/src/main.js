@@ -28,7 +28,6 @@ import {
   isMpeModeEnabled as isMpeModeEnabledCore,
   resolveOutputChannel,
   listOutputChannelsForInputChannel,
-  shouldForwardPitchBendForInputChannel,
 } from "./mpe-routing.js";
 import { getValue, setText, setValue, fillSelect } from "./ui-state.js";
 import {
@@ -64,7 +63,6 @@ import {
 } from "./instrument-sync.js";
 import {
   SAFE_EXIT_NRPN_DELAY_MS,
-  CONTROL_MODE_CHANGED_NRPN_PARAMS,
   createLinnstrumentDebugApi,
 } from "./linnstrument-debug-utils.js";
 const MODE_BY_ID = Object.fromEntries(MODES.map((mode) => [mode.id, mode]));
@@ -112,7 +110,6 @@ const AUTO_APPLY_FIELD_IDS = [
   "colorNonScaleNote",
   "deviceStartNote",
   "deviceRowOffset",
-  "exitTargetPreset",
   "stateTonicSelect",
   "stateScaleSelect",
 ];
@@ -124,7 +121,7 @@ const AUTO_APPLY_RECONNECT_FIELD_IDS = new Set([
 ]);
 
 const CONTROL_MODE_TRANSPOSE_PASSES = 2;
-const INIT_LAYOUT_SETTLE_DELAY_MS = 60;
+const INIT_LAYOUT_SETTLE_DELAY_MS = 30;
 const NRPN_CC_NUMBERS = new Set([6, 38, 98, 99, 100, 101]);
 
 export const ext = {
@@ -183,6 +180,7 @@ WebMidi.enable()
 async function init() {
   const initStartedAtMs = performance.now();
   ext.config = initConfig();
+  setSurfaceLoading(true);
   linnstrumentDebug = createLinnstrumentDebugApi({
     ext,
     log,
@@ -213,13 +211,17 @@ async function init() {
   refreshPortSelectors({ autoSelectInstrument: shouldAutoSelectPorts() });
 
   await connectMidiFromConfig();
-  const startupStateCaptured = await linnstrumentDebug.capturePreviousLinnstrumentState("startup-before-init", {
-    params: CONTROL_MODE_CHANGED_NRPN_PARAMS,
-  });
-  const standardLayoutApplied = await ensureLinnStrumentStandardLayout("startup");
-  await sleep(INIT_LAYOUT_SETTLE_DELAY_MS);
-  const mpeInputModeConfigured = await configureLinnStrumentMpeInputMode(isMpeModeEnabled(), "startup");
+  let standardLayoutApplied = false;
+  let mpeInputModeConfigured = false;
+  if (ext.midi.instrumentOutput) {
+    standardLayoutApplied = await ensureLinnStrumentStandardLayout("startup");
+    await sleep(INIT_LAYOUT_SETTLE_DELAY_MS);
+    mpeInputModeConfigured = await configureLinnStrumentMpeInputMode(isMpeModeEnabled(), "startup");
+  } else {
+    log.warn("Skipping LinnStrument init sync because no LinnStrument output is connected.");
+  }
   await resendPitchBendRangeFromConfig({ includeLoop: false, source: "startup" });
+  setSurfaceLoading(false);
   rebuildLayout();
 
   ext.util = linnstrumentDebug.createExtUtilApi();
@@ -231,9 +233,20 @@ async function init() {
     instrumentOutputConnected: Boolean(ext.midi.instrumentOutput),
     standardLayoutApplied,
     mpeInputModeConfigured,
-    startupStateCaptured,
     linnstrument: buildStartupLinnstrumentParamSummary(ext.config),
   });
+}
+
+function setSurfaceLoading(isLoading, text = "Loading / Initializing LinnStrument") {
+  const loadingEl = document.getElementById("surfaceLoading");
+  const surfaceEl = document.getElementById("visualization");
+  if (!loadingEl || !surfaceEl) {
+    return;
+  }
+
+  loadingEl.textContent = String(text || "Loading / Initializing LinnStrument");
+  loadingEl.hidden = !isLoading;
+  surfaceEl.hidden = Boolean(isLoading);
 }
 
 function bindMidiHotplugListeners() {
@@ -516,7 +529,6 @@ function populateUiFromConfig() {
   setValue("deviceStartNote", ext.config.deviceStartNote);
   setValue("deviceRowOffset", ext.config.deviceRowOffset);
   setValue("loopInputPort", ext.config.loopInputPort);
-  setValue("exitTargetPreset", ext.config.exitTargetPreset ?? defaultConfig.exitTargetPreset);
   applyUiColorThemeFromConfig();
 }
 
@@ -557,7 +569,6 @@ function readConfigFromUi() {
   const colorNonScaleNote = parseLedColor(getValue("colorNonScaleNote"), defaultConfig.colorNonScaleNote);
   const deviceStartNote = clampInt(getValue("deviceStartNote"), 0, 127, defaultConfig.deviceStartNote);
   const deviceRowOffset = clampInt(getValue("deviceRowOffset"), 0, 24, defaultConfig.deviceRowOffset);
-  const exitTargetPreset = clampInt(getValue("exitTargetPreset"), 1, 6, defaultConfig.exitTargetPreset);
 
   ext.config = {
     ...ext.config,
@@ -575,7 +586,6 @@ function readConfigFromUi() {
     colorNonScaleNote,
     deviceStartNote,
     deviceRowOffset,
-    exitTargetPreset,
     instrumentInputPort: getValue("instrumentInputPort") || "",
     instrumentOutputPort: getValue("instrumentOutputPort") || "",
     loopOutputPort: getValue("loopOutputPort") || "",
@@ -595,7 +605,6 @@ function readConfigFromUi() {
   setValue("deviceRowOffset", ext.config.deviceRowOffset);
   setValue("stateTonicSelect", mod(ext.config.selectedKey ?? defaultConfig.selectedKey, 12));
   setValue("stateScaleSelect", ext.config.selectedModeId ?? defaultConfig.selectedModeId);
-  setValue("exitTargetPreset", ext.config.exitTargetPreset);
 }
 
 function refreshPortSelectors({ autoSelectInstrument = false } = {}) {
@@ -1269,11 +1278,7 @@ function handlePolyPressure(msg) {
   }
 }
 
-function forwardPressureForInputChannel(
-  inputChannel,
-  pressureValue,
-  { allowNonMpeBroadcast = false } = {},
-) {
+function forwardPressureForInputChannel(inputChannel, pressureValue) {
   const value = clampInt(pressureValue, 0, 127, 0);
   const mpeEnabled = isMpeModeEnabled();
 
@@ -1439,10 +1444,6 @@ function releaseRoutedEntriesForInputChannel(inputChannel, keepCoord = null, vel
     setPadHeld(coord, false);
     finalizeRoutedNoteOff(coord, velocity);
   });
-}
-
-function shouldSuppressNonMpePitchBend() {
-  return !isMpeModeEnabled() && ext.state.routedNotesByPad.size > 1;
 }
 
 function finalizeRoutedNoteOff(coord, velocity) {
@@ -2050,9 +2051,16 @@ function updateRoutingStatus() {
   }
 
   const inOk = Boolean(ext.midi.instrumentInput);
+  const instrumentOutOk = Boolean(ext.midi.instrumentOutput);
   const outOk = Boolean(ext.midi.loopOutput);
-  const ready = inOk && outOk;
-  const status = !inOk ? "No LinnStrument input" : outOk ? "Ready" : "No loop output";
+  const ready = inOk && instrumentOutOk && outOk;
+  const status = !inOk
+    ? "No LinnStrument input"
+    : !instrumentOutOk
+      ? "No LinnStrument output"
+      : outOk
+        ? "Ready"
+        : "No loop output";
   const statusEl = document.getElementById("routingStatus");
   if (!statusEl) {
     return;
@@ -2378,13 +2386,6 @@ function markRecentLoopNoteOn(channel, noteNumber) {
 
 function wasRecentlyForwardedLoopNoteOn(channel, noteNumber, maxAgeMs = 30) {
   return wasRecentlyForwardedLoopNoteOnCore(ext.state.recentLoopNoteOns, channel, noteNumber, maxAgeMs);
-}
-
-function shouldForwardPitchBendOnChannel(channel) {
-  return shouldForwardPitchBendForInputChannel({
-    inputChannel: channel,
-    routedEntries: Array.from(ext.state.routedNotesByPad.values()),
-  });
 }
 
 function applyUiColorThemeFromConfig() {

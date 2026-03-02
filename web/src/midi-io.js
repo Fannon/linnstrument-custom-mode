@@ -29,20 +29,25 @@ export function autoSelectLinnStrumentPorts({
 }) {
   const visibleInputs = (inputs || []).filter((port) => !isHiddenMidiPortName(port?.name, hiddenNames));
   const visibleOutputs = (outputs || []).filter((port) => !isHiddenMidiPortName(port?.name, hiddenNames));
+  const visibleInputNames = new Set(visibleInputs.map((port) => String(port?.name || "")));
+  const visibleOutputNames = new Set(visibleOutputs.map((port) => String(port?.name || "")));
   const detectedInput = visibleInputs.find((port) => /linnstrument/i.test(port.name));
   const detectedOutput = visibleOutputs.find((port) => /linnstrument/i.test(port.name));
+  const hasInputSelection = inputSelect?.value && visibleInputNames.has(inputSelect.value);
+  const hasOutputSelection = outputSelect?.value && visibleOutputNames.has(outputSelect.value);
+  const hasLoopSelection = loopSelect?.value && visibleOutputNames.has(loopSelect.value);
 
-  if (inputSelect && !inputSelect.value && detectedInput) {
+  if (inputSelect && !hasInputSelection && detectedInput) {
     inputSelect.value = detectedInput.name;
     log?.info?.(`Auto-detected LinnStrument input: ${detectedInput.name}`);
   }
 
-  if (outputSelect && !outputSelect.value && detectedOutput) {
+  if (outputSelect && !hasOutputSelection && detectedOutput) {
     outputSelect.value = detectedOutput.name;
     log?.info?.(`Auto-detected LinnStrument output: ${detectedOutput.name}`);
   }
 
-  if (loopSelect && !loopSelect.value) {
+  if (loopSelect && !hasLoopSelection) {
     const preferredLoop =
       visibleOutputs.find((port) => /^LinnStrument Custom$/i.test(port.name)) ||
       visibleOutputs.find((port) => /^loopMIDI Port$/i.test(port.name)) ||
