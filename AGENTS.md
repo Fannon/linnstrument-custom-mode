@@ -95,7 +95,7 @@ When routing or MIDI protocol behavior is ambiguous, check these firmware docs b
 ## Current Project State (Feb 2026)
 
 - ✅ `bun run verify` — passing (lint + 49 unit tests + build)
-- ⚠️ `bun run test:e2e` — one failing spec (`e2e/web-surface.spec.js`, related to reset flow NRPN resend expectations)
+- ✅ `bun run test:e2e` — passing (`e2e/web-basic.spec.js`, browser-only, no LinnStrument required)
 - ✅ CI runs both `verify` and `e2e` jobs (separate, `e2e` depends on `verify`)
 - ⚠️ `main.js` is still ~2,100 lines; see `docs/todo.md` for a concrete split plan
 
@@ -107,6 +107,24 @@ When routing or MIDI protocol behavior is ambiguous, check these firmware docs b
 4. **Keep `web/index.html` and `bin/updateLibs.js` in sync** when frontend dependencies change.
 5. **Log changes** use `log.info/success/warn/error` from `web/src/log.js`. Do not use `innerHTML` for log messages (XSS risk — this was already fixed).
 
+## E2E Test Scope (Required)
+
+Playwright tests in `e2e/` must stay **browser-only** and must work with **no MIDI hardware connected**.
+
+Write E2E tests for:
+- App boot/render behavior (grid visible, controls present, status text).
+- Basic UI workflows (selectors, mode toggles, overlay/pointer interactions).
+- State persistence/reset behavior via localStorage and UI controls.
+- Non-hardware UX regressions that a user can observe directly in the browser.
+
+Do **not** write E2E tests for:
+- LinnStrument hardware protocol validation (NRPN sequences, LED sync, device restore behavior).
+- MIDI routing payload assertions (note/CC/aftertouch/pitch-bend bytes, channel allocation, MPE channel behavior).
+- Tests that require specific physical/virtual MIDI ports to exist.
+- Scenarios that depend on real-time instrument I/O, loopback ports, or WebMidi device enumeration quirks.
+
+If behavior is MIDI/protocol-specific, cover it with unit tests in `test/*.test.js` using deterministic stubs/mocks.
+
 ## Verify Before Handoff
 
 Always run this sequence before completing work:
@@ -116,7 +134,7 @@ bun run test        # Unit tests
 bun run lint        # Lint
 bun run build       # Vendor lib copy
 bun run verify      # All of the above in one command
-bun run test:e2e    # When you changed UI, routing, or MIDI behavior
+bun run test:e2e    # When you changed browser UI/user flows (no MIDI hardware required)
 ```
 
 ## Priority Work

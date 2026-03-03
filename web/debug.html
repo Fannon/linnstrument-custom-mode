@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <title>LinnStrument Init/Exit Debug</title>
+
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="icon" type="image/png" sizes="256x256" href="Favicon_256.png">
+  <link href="./lib/bootstrap.min.css" rel="stylesheet">
+
+  <style>
+    :root {
+      --debug-bg: #f6f3ec;
+      --debug-panel: #ffffff;
+      --debug-border: #d2c8b5;
+      --debug-heading: #1f2d3d;
+      --debug-muted: #5c6773;
+      --debug-init: #0f766e;
+      --debug-exit: #b45309;
+      --debug-general: #1d4ed8;
+    }
+
+    body {
+      margin: 0;
+      background: radial-gradient(circle at top right, #f8eed9 0%, var(--debug-bg) 45%, #ece6da 100%);
+      color: #1a202c;
+      min-height: 100vh;
+    }
+
+    .debug-shell {
+      max-width: 1500px;
+      margin: 0 auto;
+      padding: 1rem;
+      display: grid;
+      gap: 1rem;
+    }
+
+    .debug-panel {
+      background: var(--debug-panel);
+      border: 1px solid var(--debug-border);
+      border-radius: 14px;
+      padding: 1rem;
+      box-shadow: 0 2px 14px rgba(31, 45, 61, 0.08);
+    }
+
+    .debug-title {
+      font-size: 1.6rem;
+      margin: 0;
+      color: var(--debug-heading);
+    }
+
+    .debug-subtitle {
+      margin: 0.3rem 0 0;
+      color: var(--debug-muted);
+      font-size: 0.95rem;
+    }
+
+    .setup-grid {
+      display: grid;
+      gap: 0.8rem;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      align-items: end;
+    }
+
+    .setup-actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-top: 0.8rem;
+    }
+
+    .status-line {
+      margin: 0.75rem 0 0;
+      font-size: 0.92rem;
+      color: var(--debug-muted);
+    }
+
+    .stages-grid {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      align-items: start;
+    }
+
+    .stage-title {
+      margin: 0;
+      font-size: 1.1rem;
+      font-weight: 700;
+    }
+
+    .stage-title-init {
+      color: var(--debug-init);
+    }
+
+    .stage-title-exit {
+      color: var(--debug-exit);
+    }
+
+    .stage-title-general {
+      color: var(--debug-general);
+    }
+
+    .stage-actions {
+      margin-top: 0.75rem;
+      display: grid;
+      gap: 0.45rem;
+      max-height: 62vh;
+      overflow: auto;
+      padding-right: 0.25rem;
+    }
+
+    .stage-actions button {
+      text-align: left;
+    }
+
+    .log-box {
+      max-height: 32vh;
+      overflow: auto;
+      background: #101418;
+      color: #d6e2f0;
+      border-radius: 10px;
+      padding: 0.75rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.84rem;
+      line-height: 1.35;
+      border: 1px solid #2f3a46;
+    }
+
+    .log-line {
+      white-space: pre-wrap;
+      margin: 0;
+    }
+
+    .snapshot-textarea {
+      width: 100%;
+      min-height: 140px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.82rem;
+    }
+
+    @media (max-width: 1200px) {
+      .setup-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .stages-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .stage-actions {
+        max-height: 48vh;
+      }
+    }
+  </style>
+
+  <script src="./lib/bootstrap.bundle.min.js?v=2"></script>
+  <script src="./lib/webmidi.iife.min.js"></script>
+  <script src="./src/debug.js" type="module"></script>
+</head>
+
+<body>
+  <main class="debug-shell">
+    <section class="debug-panel">
+      <h1 class="debug-title">LinnStrument Init / Exit Debug</h1>
+      <p class="debug-subtitle">Step-through debug controls for startup initialization, exit/restore, and general firmware actions.</p>
+    </section>
+
+    <section class="debug-panel" aria-label="MIDI setup and options">
+      <div class="setup-grid">
+        <div>
+          <label class="form-label" for="instrumentInputPort">Instrument Input</label>
+          <select id="instrumentInputPort" class="form-select"></select>
+        </div>
+
+        <div>
+          <label class="form-label" for="instrumentOutputPort">Instrument Output</label>
+          <select id="instrumentOutputPort" class="form-select"></select>
+        </div>
+      </div>
+
+      <div class="setup-actions">
+        <button id="enableWebMidi" type="button" class="btn btn-success btn-sm">Enable WebMIDI</button>
+        <button id="disableWebMidi" type="button" class="btn btn-outline-danger btn-sm">Disable WebMIDI</button>
+        <button id="refreshPorts" type="button" class="btn btn-outline-secondary btn-sm">Refresh Ports</button>
+        <button id="connectPorts" type="button" class="btn btn-primary btn-sm">Connect Selected Ports</button>
+        <button id="disconnectPorts" type="button" class="btn btn-outline-warning btn-sm">Disconnect Ports</button>
+        <button id="rebuildActions" type="button" class="btn btn-outline-dark btn-sm">Rebuild Stage Buttons</button>
+        <button id="stopSequence" type="button" class="btn btn-outline-danger btn-sm">Stop Current Sequence</button>
+      </div>
+
+      <p id="connectionStatus" class="status-line">WebMIDI disabled. No ports connected.</p>
+    </section>
+
+    <section class="stages-grid" aria-label="Debug stages">
+      <section class="debug-panel" aria-label="Initialization stage">
+        <h2 class="stage-title stage-title-init">Initialization Stage</h2>
+        <button id="runInitSequence" type="button" class="btn btn-success btn-sm" data-action-btn="true">Run Full Init Sequence</button>
+        <div id="initActions" class="stage-actions"></div>
+      </section>
+
+      <section class="debug-panel" aria-label="Exit and restore stage">
+        <h2 class="stage-title stage-title-exit">Exit / Restore Stage</h2>
+        <button id="runExitSequence" type="button" class="btn btn-warning btn-sm" data-action-btn="true">Run Full Exit/Restore Sequence</button>
+        <div id="exitActions" class="stage-actions"></div>
+      </section>
+
+      <section class="debug-panel" aria-label="General actions">
+        <h2 class="stage-title stage-title-general">General Actions</h2>
+        <div id="generalActions" class="stage-actions"></div>
+      </section>
+    </section>
+
+    <section class="debug-panel" aria-label="Debug log">
+      <div class="d-flex justify-content-between align-items-center" style="margin-bottom: 0.7rem;">
+        <h2 class="stage-title" style="margin: 0;">Debug Log</h2>
+        <button id="clearLog" type="button" class="btn btn-outline-secondary btn-sm">Clear Log</button>
+      </div>
+      <div id="debugLog" class="log-box" aria-live="polite"></div>
+    </section>
+
+    <section class="debug-panel" aria-label="Snapshot and query tools">
+      <h2 class="stage-title" style="margin-bottom: 0.7rem;">Snapshot / Query Tools</h2>
+      <div class="setup-actions" style="margin-top: 0;">
+        <button id="readControlSnapshot" type="button" class="btn btn-outline-secondary btn-sm">Read Control Snapshot</button>
+        <button id="readFullSnapshot" type="button" class="btn btn-outline-secondary btn-sm">Read Full Snapshot</button>
+        <button id="restoreLastSnapshot" type="button" class="btn btn-outline-secondary btn-sm">Restore Last Snapshot</button>
+        <button id="markSnapshotA" type="button" class="btn btn-outline-secondary btn-sm">Mark Snapshot A</button>
+        <button id="markSnapshotB" type="button" class="btn btn-outline-secondary btn-sm">Mark Snapshot B</button>
+        <button id="diffSnapshots" type="button" class="btn btn-outline-secondary btn-sm">Diff A vs B</button>
+        <button id="verifyKnownDefaultsOnly" type="button" class="btn btn-outline-secondary btn-sm">Verify Known Defaults</button>
+        <button id="firmwareBounce" type="button" class="btn btn-outline-secondary btn-sm">Firmware Bounce (1→0)</button>
+        <button id="panicAllNotesOff" type="button" class="btn btn-outline-warning btn-sm">Panic All Notes Off</button>
+      </div>
+      <div class="setup-grid" style="margin-top: 0.8rem;">
+        <div>
+          <label class="form-label" for="queryParamNumber">Query Single NRPN Param</label>
+          <input id="queryParamNumber" class="form-control" type="number" min="0" max="16383" step="1" value="245">
+        </div>
+        <div>
+          <label class="form-label" for="queryTimeoutMs">Query Timeout (ms)</label>
+          <input id="queryTimeoutMs" class="form-control" type="number" min="200" max="5000" step="1" value="1200">
+        </div>
+      </div>
+      <div class="setup-actions">
+        <button id="querySingleParam" type="button" class="btn btn-outline-secondary btn-sm">Query Param</button>
+        <button id="exportLastSnapshot" type="button" class="btn btn-outline-secondary btn-sm">Export Last Snapshot JSON</button>
+        <button id="importSnapshotJson" type="button" class="btn btn-outline-secondary btn-sm">Import Snapshot JSON</button>
+      </div>
+      <div style="margin-top: 0.8rem;">
+        <label class="form-label" for="snapshotJson">Snapshot JSON</label>
+        <textarea id="snapshotJson" class="form-control snapshot-textarea" spellcheck="false"></textarea>
+      </div>
+    </section>
+
+    <section class="debug-panel" aria-label="Debug configuration">
+      <h2 class="stage-title" style="margin-bottom: 0.7rem;">Debug Configuration</h2>
+      <div class="setup-grid">
+        <div>
+          <label class="form-label" for="nrpnDelayMs">NRPN Delay (ms)</label>
+          <input id="nrpnDelayMs" class="form-control" type="number" min="0" max="2000" step="1" value="30">
+        </div>
+        <div>
+          <label class="form-label" for="safeExitNrpnDelayMs">Exit Restore NRPN Delay (ms)</label>
+          <input id="safeExitNrpnDelayMs" class="form-control" type="number" min="0" max="2000" step="1" value="50">
+        </div>
+        <div>
+          <label class="form-label" for="initSettleDelayMs">Init Settle Delay (ms)</label>
+          <input id="initSettleDelayMs" class="form-control" type="number" min="0" max="2000" step="1" value="30">
+        </div>
+        <div>
+          <label class="form-label" for="stageDelayMs">Stage Delay (ms)</label>
+          <input id="stageDelayMs" class="form-control" type="number" min="0" max="2000" step="1" value="20">
+        </div>
+        <div>
+          <label class="form-label" for="criticalRetryDelayMs">Critical Retry Delay (ms)</label>
+          <input id="criticalRetryDelayMs" class="form-control" type="number" min="0" max="2000" step="1" value="40">
+        </div>
+        <div>
+          <label class="form-label" for="ledSweepRowDelayMs">LED Sweep Row Delay (ms)</label>
+          <input id="ledSweepRowDelayMs" class="form-control" type="number" min="0" max="2000" step="1" value="8">
+        </div>
+        <div>
+          <label class="form-label" for="bendRange">Bend Range (semitones)</label>
+          <input id="bendRange" class="form-control" type="number" min="0" max="96" step="1" value="48">
+        </div>
+      </div>
+
+      <div class="setup-grid" style="margin-top: 0.8rem;">
+        <div class="form-check">
+          <input id="mpeEnabled" class="form-check-input" type="checkbox" checked>
+          <label class="form-check-label" for="mpeEnabled">MPE Enabled</label>
+        </div>
+        <div class="form-check">
+          <input id="applyRightSplit" class="form-check-input" type="checkbox">
+          <label class="form-check-label" for="applyRightSplit">Apply Control Mode To Right Split</label>
+        </div>
+      </div>
+
+      <div class="setup-actions">
+        <button id="applyConfig" type="button" class="btn btn-outline-primary btn-sm">Apply Config / Rebuild Buttons</button>
+      </div>
+    </section>
+  </main>
+</body>
+
+</html>

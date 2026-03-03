@@ -10,7 +10,7 @@
     "test:unit": "bun test test",
     "test": "bun run test:unit",
     "test:e2e": "bun run build && playwright test",
-    "test:e2e:coverage": "bun run build && playwright test e2e/main-coverage.spec.js",
+    "test:e2e:coverage": "bun run build && playwright test e2e/web-basic.spec.js",
     "verify": "bun run lint && bun run test && bun run build",
     "deploy": "gh-pages -d ./web",
     "prestart": "bun run build",

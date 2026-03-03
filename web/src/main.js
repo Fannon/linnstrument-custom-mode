@@ -53,7 +53,6 @@ import {
   extractRawControlChangeEvent,
 } from "./routing.js";
 import {
-  NRPN,
   CONTROL_MODE_LAYOUT,
   setLinnStrumentParamValue,
   applyLinnStrumentStandardLayout,
@@ -65,6 +64,7 @@ import {
   SAFE_EXIT_NRPN_DELAY_MS,
   createLinnstrumentDebugApi,
 } from "./linnstrument-debug-utils.js";
+import { NRPN, createLinnStrumentHelper } from "./linnstrument-helper.js";
 const MODE_BY_ID = Object.fromEntries(MODES.map((mode) => [mode.id, mode]));
 
 const INSTRUMENT_COLORS = {
@@ -161,6 +161,17 @@ export const ext = {
   },
   fn: {},
 };
+ext.ls = createLinnStrumentHelper({
+  ext,
+  getSyncOptions: getLinnstrumentSyncOptions,
+  logger: (message, payload = null) => {
+    if (payload === null || payload === undefined) {
+      console.log(`[ext.ls] ${message}`);
+      return;
+    }
+    console.log(`[ext.ls] ${message}`, payload);
+  },
+});
 window.ext = ext;
 let midiHotplugReconcileTimer = null;
 let midiHotplugReconcileInFlight = false;

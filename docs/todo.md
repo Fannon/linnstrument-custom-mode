@@ -97,6 +97,20 @@ Extract a shared test helper module:
 - `e2e/helpers/midi-stub.js` – the WebMidi mock factory
 - `e2e/helpers/pointer.js` – `pointerDownPad`, `pointerUpPad`, `tapPad`
 
+### R7 – Complete `ext.ls` migration and remove `linnstrument-debug-utils.js`
+
+**Files:** `web/src/linnstrument-debug-utils.js`, `web/src/linnstrument-helper.js`, `web/src/main.js`, `web/src/debug.js`
+
+`linnstrument-debug-utils.js` should become unnecessary over time. Reusable LinnStrument protocol/state logic belongs in `linnstrument-helper.js` and should be consumed via `ext.ls` in both app and debug page.
+
+**Goal:**  
+Delete `linnstrument-debug-utils.js` after migrating the remaining orchestration/wrapper calls.
+
+**Rules for this refactor:**
+1. If app/debug code needs LS behavior that is missing, add it to `linnstrument-helper.js` first.
+2. Avoid introducing new NRPN/state logic in `main.js` or debug-only utility modules.
+3. Keep one source of truth for LS state/query/restore semantics (`ext.ls`).
+
 ---
 
 ## 🧹 Code Quality & DX
@@ -219,4 +233,3 @@ These modules have no dedicated unit tests. They are exercised indirectly throug
 ## Codex Sessions
 
 run codex resume 019ca53b-3fc7-7003-bdb2-404736a442c1
-
